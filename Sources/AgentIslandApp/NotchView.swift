@@ -2,10 +2,26 @@ import SwiftUI
 import AgentIslandCore
 
 enum NotchUIState: Equatable {
-    case compact   // hugged inside the hardware notch — visually invisible
-    case peek      // narrow body hanging below the notch
-    case expanded  // full agent list
+    case compact
+    case peek
+    case expanded
 }
+
+// MARK: - Constants
+
+/// Horizontal asymmetric extension of the visible "wings" beyond the hardware notch.
+/// Tweak here to taste. Keep small so we don't cover menu-bar items.
+enum NotchWings {
+    static let left: CGFloat = 28
+    static let right: CGFloat = 16
+    static var total: CGFloat { left + right }
+    /// Window-center horizontal bias so the wings come out asymmetric.
+    /// Positive = window shifts LEFT (more wing on the left).
+    static var centerBias: CGFloat { (left - right) / 2 }
+}
+
+/// Approximate radius of the physical notch's bottom corners on M-series MBPs.
+private let kHardwareNotchBottomRadius: CGFloat = 9
 
 // MARK: - Root view
 
@@ -13,32 +29,21 @@ struct NotchView: View {
     @ObservedObject var store: AgentStore
     let geometry: NotchGeometry
     let uiState: NotchUIState
-    /// The hanging body's drawn size. Zero in compact.
     let bodySize: CGSize
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 1. Body — drawn FIRST so the notch piece overlaps & covers its top edge.
-            //    The top corners of the body have a small radius that protrudes outward
-            //    past the notch's vertical sides, forming the iconic DI shoulders.
+            // Body (peek/expanded only) — wider piece hanging below the notch.
             if uiState != .compact {
                 bodyShape
                     .frame(width: bodySize.width, height: bodySize.height)
-                    .padding(.top, geometry.notchHeight)
-            } else {
-                // Transparent hover catcher + optional static attention indicator
-                compactBuffer
-                    .frame(width: bodySize.width, height: bodySize.height)
-                    .padding(.top, geometry.notchHeight)
+                    .padding(.top, geometry.notchHeight - 1)  // -1 for clean overlap
             }
 
-            // 2. Notch piece — sits flush with the screen top. On notched displays
-            //    it lives inside the physical cutout and is visually invisible.
-            //    On non-notched displays it's a small black rectangle that anchors
-            //    the body and lets the rest of the menu bar remain clickable.
+            // Notch piece — always present, rounded bottom corners match hardware.
             notchPiece
 
-            // 3. Content (only when body is visible)
+            // Content for peek/expanded
             if uiState != .compact {
                 content
                     .frame(width: bodySize.width, height: bodySize.height, alignment: .top)
@@ -47,53 +52,62 @@ struct NotchView: View {
                     .padding(.vertical, 8)
             }
         }
-        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: uiState)
-        .animation(.easeInOut(duration: 0.18), value: store.agents)
+        // Single transition animation, only on state changes. No periodic animations.
+        .animation(.spring(response: 0.36, dampingFraction: 0.84), value: uiState)
     }
 
-    /// Invisible-but-hoverable strip sitting directly below the hardware notch.
-    /// If something needs attention, draws a small static orange capsule as a
-    /// calm, motionless "you have a pending task" hint.
-    private var compactBuffer: some View {
-        ZStack {
-            // Transparent hit area — Color.clear with explicit contentShape is hoverable.
-            Color.black.opacity(0.001)
-                .contentShape(Rectangle())
-            if store.attentionAgent != nil {
-                Capsule()
-                    .fill(Color.orange)
-                    .frame(width: 36, height: 3)
-                    .shadow(color: .orange.opacity(0.35), radius: 2)
-                    .padding(.top, 2)
-            }
-        }
-    }
+    // MARK: notch piece (always)
 
     private var notchPiece: some View {
-        // Flush-top rectangle, no rounding on top, hardware notch hides it.
-        Rectangle()
+        ZStack {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: kHardwareNotchBottomRadius,
+                bottomTrailingRadius: kHardwareNotchBottomRadius,
+                topTrailingRadius: 0,
+                style: .continuous
+            )
             .fill(Color.black)
-            .frame(width: geometry.notchWidth,
-                   // +1 to overlap the body cleanly (no hairline gap)
-                   height: geometry.notchHeight + (uiState == .compact ? 0 : 1))
+
+            // Tiny visible status dot in the left wing (compact only — peek/expanded
+            // has its own rich UI below).
+            if uiState == .compact, let dot = compactDotColor {
+                HStack(spacing: 0) {
+                    Spacer()
+                        .frame(width: NotchWings.left * 0.45)  // ~13pt in from left edge
+                    Circle()
+                        .fill(dot)
+                        .frame(width: 5, height: 5)
+                        .shadow(color: dot.opacity(0.5), radius: 1.5)
+                    Spacer()
+                }
+            }
+        }
+        .frame(width: geometry.notchWidth + NotchWings.total,
+               height: geometry.notchHeight)
     }
+
+    /// Primary color summarizing all agents (priority: attention > running > idle).
+    private var compactDotColor: Color? {
+        let active = store.agents.filter { !$0.isStale }
+        if active.isEmpty { return nil }
+        if active.contains(where: { $0.needs_attention }) { return .orange }
+        if active.contains(where: { $0.status == .running }) { return .green }
+        return Color(white: 0.45)
+    }
+
+    // MARK: body
 
     private var bodyShape: some View {
         UnevenRoundedRectangle(
-            topLeadingRadius: shoulderRadius,
+            topLeadingRadius: 12,
             bottomLeadingRadius: bottomRadius,
             bottomTrailingRadius: bottomRadius,
-            topTrailingRadius: shoulderRadius,
+            topTrailingRadius: 12,
             style: .continuous
         )
         .fill(Color.black)
-        .shadow(color: .black.opacity(0.4), radius: 12, x: 0, y: 6)
-    }
-
-    /// Small radius on the body's top corners → they round OUTWARD past the
-    /// notch's straight bottom edges, producing the convex DI shoulders.
-    private var shoulderRadius: CGFloat {
-        uiState == .peek ? 12 : 14
+        .shadow(color: .black.opacity(0.45), radius: 14, x: 0, y: 8)
     }
 
     private var bottomRadius: CGFloat {
@@ -110,78 +124,69 @@ struct NotchView: View {
         case .compact:
             EmptyView()
         case .peek:
-            PeekContent(store: store)
+            CyclingPeekContent(store: store)
         case .expanded:
             ExpandedContent(store: store)
         }
     }
 }
 
-// MARK: - Peek
+// MARK: - Peek (cycles between agents)
 
-private struct PeekContent: View {
+private struct CyclingPeekContent: View {
     @ObservedObject var store: AgentStore
+    @State private var index: Int = 0
+    @State private var cycleTimer: Timer? = nil
+
+    /// Stable rotation order: attention → running → others, all non-stale.
+    private var rotation: [AgentState] {
+        let active = store.agents.filter { !$0.isStale }
+        let attn  = active.filter { $0.needs_attention }
+        let run   = active.filter { !$0.needs_attention && $0.status == .running }
+        let other = active.filter { !$0.needs_attention && $0.status != .running }
+        return attn + run + other
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            if let attn = store.attentionAgent {
-                attentionRow(attn)
-            } else if let running = primaryRunning {
-                runningRow(running)
-            } else {
+        Group {
+            if rotation.isEmpty {
                 idleRow
+            } else {
+                let current = rotation[index % max(rotation.count, 1)]
+                AgentPeekRow(agent: current)
+                    .id(current.agent_id)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal:   .move(edge: .leading).combined(with: .opacity)
+                    ))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var primaryRunning: AgentState? {
-        store.agents.filter { !$0.isStale && $0.status == .running }
-            .max { $0.updated_at < $1.updated_at }
-    }
-
-    private func attentionRow(_ a: AgentState) -> some View {
-        HStack(spacing: 9) {
-            AgentIcon(kind: a.kind, accent: .orange)
-                .frame(width: 20, height: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(a.display_name)
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                Text("needs your input")
-                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                    .foregroundColor(Color.orange.opacity(0.95))
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 6)
-            StatusDot(color: .orange)
+        .clipped()
+        .onAppear { startCycle() }
+        .onDisappear { stopCycle() }
+        .onChange(of: rotation.map(\.agent_id)) { _ in
+            // If the set of agents changes, reset to the first to avoid index drift.
+            if index >= rotation.count { index = 0 }
         }
     }
 
-    private func runningRow(_ a: AgentState) -> some View {
-        HStack(spacing: 9) {
-            AgentIcon(kind: a.kind, accent: .green)
-                .frame(width: 20, height: 20)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(a.display_name)
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                if let task = a.task {
-                    Text(task)
-                        .font(.system(size: 9.5, design: .rounded))
-                        .foregroundColor(.white.opacity(0.55))
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 6)
-            HStack(spacing: 4) {
-                ForEach(Array(store.agents.prefix(5)), id: \.agent_id) { a in
-                    StatusDot(color: dotColor(for: a))
+    private func startCycle() {
+        stopCycle()
+        guard rotation.count > 1 else { return }
+        cycleTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: true) { _ in
+            Task { @MainActor in
+                guard rotation.count > 1 else { return }
+                withAnimation(.easeInOut(duration: 0.42)) {
+                    index = (index + 1) % rotation.count
                 }
             }
         }
+    }
+
+    private func stopCycle() {
+        cycleTimer?.invalidate()
+        cycleTimer = nil
     }
 
     private var idleRow: some View {
@@ -194,6 +199,42 @@ private struct PeekContent: View {
                 .foregroundColor(.white.opacity(0.55))
             Spacer()
         }
+    }
+}
+
+private struct AgentPeekRow: View {
+    let agent: AgentState
+
+    var body: some View {
+        HStack(spacing: 9) {
+            AgentIcon(kind: agent.kind, accent: dotColor(for: agent))
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agent.display_name)
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(secondaryLabel)
+                    .font(.system(size: 9.5, weight: agent.needs_attention ? .medium : .regular,
+                                  design: .rounded))
+                    .foregroundColor(secondaryColor)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            StatusDot(color: dotColor(for: agent))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var secondaryLabel: String {
+        if agent.needs_attention {
+            return agent.task ?? "needs your input"
+        }
+        return agent.task ?? agent.status.rawValue
+    }
+
+    private var secondaryColor: Color {
+        agent.needs_attention ? Color.orange.opacity(0.95) : Color.white.opacity(0.55)
     }
 }
 
@@ -328,7 +369,7 @@ private struct ExpandedAgentRow: View {
     }
 }
 
-// MARK: - Shared bits
+// MARK: - Shared
 
 func dotColor(for a: AgentState) -> Color {
     if a.isStale { return Color(white: 0.5) }
@@ -342,11 +383,9 @@ func dotColor(for a: AgentState) -> Color {
     }
 }
 
-/// A static colored dot with a subtle glow. No motion — calm by design.
 struct StatusDot: View {
     let color: Color
     var size: CGFloat = 8
-
     var body: some View {
         Circle()
             .fill(color)
