@@ -78,6 +78,16 @@ final class OTLPReceiver {
     }
 
     private func respond(to req: HTTPRequest, on connection: NWConnection) {
+        // Always log every inbound request when AGENTISLAND_LOG=1, regardless
+        // of whether we recognize the path. Crucial for diagnosing "telemetry
+        // not arriving" — distinguishes "client never connected" from
+        // "connected but to a path/format we don't handle".
+        if AgentIslandLog.enabled {
+            let ctSummary = req.headers["content-type"] ?? "—"
+            let bodyPreview = String(data: req.body.prefix(200), encoding: .utf8) ?? "<binary \(req.body.count)B>"
+            FileHandle.standardError.write(Data("[OTLP] \(req.method) \(req.path) ct=\(ctSummary) bodyLen=\(req.body.count) preview=\(bodyPreview)\n".utf8))
+        }
+
         let status: Int
         let bodyText: String
         if req.method == "POST", req.path == "/v1/logs" {
