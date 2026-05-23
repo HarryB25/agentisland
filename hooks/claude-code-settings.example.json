@@ -1,0 +1,13 @@
+{
+  "_comment": "AgentIsland hook configuration. Merge the 'hooks' block into ~/.claude/settings.json. The 'agentisland' binary must be on $PATH.",
+  "hooks": {
+    "SessionStart":     [{ "hooks": [{ "type": "command", "command": "agentisland hook SessionStart" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "agentisland hook UserPromptSubmit" }] }],
+    "PreToolUse":       [{ "hooks": [{ "type": "command", "command": "agentisland hook PreToolUse" }] }],
+    "PostToolUse":      [{ "hooks": [{ "type": "command", "command": "agentisland hook PostToolUse" }] }],
+    "Notification":     [{ "hooks": [{ "type": "command", "command": "agentisland hook Notification" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "agentisland hook Stop" }] }],
+    "SubagentStop":     [{ "hooks": [{ "type": "command", "command": "agentisland hook SubagentStop" }] }],
+    "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "agentisland hook SessionEnd" }] }]
+  }
+}

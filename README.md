@@ -1,0 +1,141 @@
+# AgentIsland
+
+A Dynamic-Island-style status bar for the AI agents living on your Mac.
+
+You probably have several agents running on your machine — Claude Code, Codex, openclaw, Hermes, your own scripts. They run in different terminals, different windows. **You forget which ones are working, which are stuck waiting for your approval, and which finished an hour ago.** AgentIsland is a small floating pill at the top of your screen that always tells you.
+
+> Status: early MVP. Works on macOS 13+. Currently ships a Claude Code adapter; protocol is intentionally simple so any agent can join.
+
+![collapsed](docs/collapsed.png) ![expanded](docs/expanded.png)
+
+## How it works
+
+```
+┌─────────────────────────────────────────────────┐
+│   Notch UI (SwiftUI app, always on top)          │
+└──────────────▲──────────────────────────────────┘
+               │ reads
+┌──────────────┴──────────────────────────────────┐
+│   ~/.agentisland/state/<agent_id>.json           │  ← single source of truth
+└──────────────▲──────────────────────────────────┘
+               │ writes
+   ┌───────────┼───────────┬─────────────┐
+   │           │           │             │
+Claude Code  Codex      Hermes       Your script
+(via hooks)  (PTY wrap) (SDK)        (`agentisland report ...`)
+```
+
+Each agent writes a small JSON file. The UI watches the directory with FSEvents and renders. No daemon, no socket, no database. New adapters are ~20 lines.
+
+## Quick start
+
+Requires macOS 13+ and Swift 5.9 (`xcode-select --install`).
+
+```bash
+git clone https://github.com/YOUR/agentisland.git
+cd agentisland
+swift build -c release
+
+# Run the UI (stays floating; quit with Cmd+Q from the Activity Monitor)
+swift run AgentIsland &
+
+# Drop demo agents to see all three status types
+swift run agentisland demo
+```
+
+You should now see a black pill at the top-center of your screen with three colored dots — green (running), orange pulsing (needs attention), blue (idle). Hover to expand.
+
+To put the CLI on your PATH:
+
+```bash
+sudo ln -sf "$(pwd)/.build/release/agentisland" /usr/local/bin/agentisland
+```
+
+## Connecting Claude Code
+
+```bash
+./scripts/install-claude-hooks.sh
+```
+
+This merges hook entries into `~/.claude/settings.json` so that Claude Code reports `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd` to AgentIsland. Now every Claude Code session will appear in your pill while it works, turn orange when it's waiting for your approval, and disappear shortly after exit.
+
+## Connecting anything else
+
+Your script just needs to write a JSON file. Easiest way:
+
+```bash
+agentisland report \
+  --id my-agent-1 \
+  --kind custom \
+  --name "Crawl filings" \
+  --status running \
+  --task "Downloading 10-Q PDFs..."
+
+# When you need user input:
+agentisland report --id my-agent-1 --status waiting_input --attention \
+  --task "Approve download of 12 large PDFs?"
+
+# When done:
+agentisland report --id my-agent-1 --status done --task "12 PDFs saved"
+```
+
+Or in Python:
+
+```python
+import json, pathlib, time, datetime
+p = pathlib.Path.home() / ".agentisland/state/my-agent.json"
+p.parent.mkdir(parents=True, exist_ok=True)
+now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+p.write_text(json.dumps({
+  "schema": 1, "agent_id": "my-agent", "kind": "python",
+  "display_name": "Train model", "status": "running",
+  "task": "Epoch 3/10", "started_at": now, "updated_at": now,
+  "needs_attention": False, "tail": [], "ttl_seconds": 60,
+}))
+```
+
+## State file schema (v1)
+
+```json
+{
+  "schema": 1,
+  "agent_id": "claude-7f3a",
+  "kind": "claude-code",
+  "display_name": "Refactor auth module",
+  "status": "running",
+  "task": "Editing src/auth/session.ts",
+  "pid": 48211,
+  "cwd": "/Users/me/proj/api",
+  "started_at": "2026-05-23T10:12:03Z",
+  "updated_at": "2026-05-23T10:14:51Z",
+  "needs_attention": false,
+  "tail": ["✓ Edit", "✓ Bash"],
+  "ttl_seconds": 60
+}
+```
+
+- `status`: `running` | `waiting_input` | `idle` | `done` | `error`
+- `needs_attention`: orange pulse + badge. Use it for "user input required".
+- `ttl_seconds`: if `updated_at` is older than this, the dot grays out as stale.
+
+## Roadmap
+
+- [x] P0 — SwiftUI notch UI + FS watcher + CLI
+- [x] P1 — Claude Code hooks adapter
+- [ ] P2 — Click-to-focus (jump back to the agent's terminal)
+- [ ] P3 — PTY wrapper `agentisland wrap -- <cmd>` for non-hookable CLIs (Codex)
+- [ ] P4 — Python / TS SDKs
+- [ ] P5 — Timeline view (SQLite history)
+- [ ] P6 — Remote relay (agents on other machines / containers)
+
+## Contributing
+
+Issues and PRs welcome. The protocol (`AgentState` in `Sources/AgentIslandCore/AgentState.swift`) is the load-bearing piece — discuss schema changes in an issue first.
+
+## Support
+
+If this saves you from losing track of a half-finished agent task, consider buying me a coffee: <https://buymeacoffee.com/> *(link TBD)*. No paid features, no telemetry, ever.
+
+## License
+
+MIT.
