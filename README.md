@@ -58,7 +58,7 @@ cd agentisland
 swift build -c release
 
 # Run the UI (stays floating; quit with Cmd+Q from the Activity Monitor)
-swift run AgentIsland &
+swift run AgentIslandApp &
 
 # Drop demo agents to see all three status types
 swift run agentisland demo

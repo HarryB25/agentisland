@@ -1,39 +1,65 @@
 #!/usr/bin/env bash
 # install-claude-hooks.sh
-# Merge AgentIsland hooks into ~/.claude/settings.json.
+# Merge AgentIsland hooks into ~/.claude/settings.json using the absolute
+# path to the locally-built agentisland binary (no sudo, no PATH dance).
 # Idempotent — re-running is safe.
 set -euo pipefail
 
 SETTINGS="${HOME}/.claude/settings.json"
-HOOK_SRC="$(cd "$(dirname "$0")/.." && pwd)/hooks/claude-code-settings.example.json"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
-if ! command -v agentisland >/dev/null 2>&1; then
-  echo "warning: 'agentisland' is not on PATH yet."
-  echo "         After building, symlink it:  ln -sf \"$(pwd)/.build/release/agentisland\" /usr/local/bin/agentisland"
+# Pick the freshest of release/debug.
+BIN_RELEASE="$REPO/.build/release/agentisland"
+BIN_DEBUG="$REPO/.build/debug/agentisland"
+if [[ -x "$BIN_RELEASE" && ( ! -x "$BIN_DEBUG" || "$BIN_RELEASE" -nt "$BIN_DEBUG" ) ]]; then
+  BIN="$BIN_RELEASE"
+elif [[ -x "$BIN_DEBUG" ]]; then
+  BIN="$BIN_DEBUG"
+else
+  echo "error: agentisland binary not found. Run 'swift build' first." >&2
+  exit 1
 fi
+echo "Using binary: $BIN"
 
 mkdir -p "$(dirname "$SETTINGS")"
-if [[ ! -f "$SETTINGS" ]]; then echo "{}" > "$SETTINGS"; fi
+[[ -f "$SETTINGS" ]] || echo "{}" > "$SETTINGS"
 
-python3 - <<PY
+python3 - "$BIN" "$SETTINGS" <<'PY'
 import json, pathlib, sys
-settings_path = pathlib.Path("${SETTINGS}")
-hook_path     = pathlib.Path("${HOOK_SRC}")
+
+bin_path, settings_path_str = sys.argv[1], sys.argv[2]
+settings_path = pathlib.Path(settings_path_str)
 settings = json.loads(settings_path.read_text() or "{}")
-hooks_blob = json.loads(hook_path.read_text())["hooks"]
+
+EVENTS = [
+    "SessionStart", "UserPromptSubmit",
+    "PreToolUse", "PostToolUse",
+    "Notification", "Stop", "SubagentStop", "SessionEnd",
+]
+
 settings.setdefault("hooks", {})
-for event, defs in hooks_blob.items():
+for event in EVENTS:
     existing = settings["hooks"].get(event, [])
-    # Filter out any prior AgentIsland entries to keep this idempotent.
+    # Strip any previous AgentIsland entries (anything that contains
+    # 'agentisland hook') so re-running is idempotent.
     cleaned = []
     for group in existing:
-        keep = []
-        for h in group.get("hooks", []):
-            if "agentisland hook" not in h.get("command", ""):
-                keep.append(h)
+        keep = [h for h in group.get("hooks", [])
+                if "agentisland hook" not in h.get("command", "")]
         if keep:
             cleaned.append({**group, "hooks": keep})
-    settings["hooks"][event] = cleaned + defs
+    cleaned.append({
+        "hooks": [{
+            "type": "command",
+            "command": f"{bin_path} hook {event}",
+        }]
+    })
+    settings["hooks"][event] = cleaned
+
 settings_path.write_text(json.dumps(settings, indent=2))
 print(f"updated {settings_path}")
 PY
+
+echo ""
+echo "Done. Existing Claude Code sessions will pick up hooks on their next event."
+echo "AgentIsland must be running (nohup .build/debug/AgentIsland & disown)."

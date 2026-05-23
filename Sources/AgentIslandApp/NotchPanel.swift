@@ -99,8 +99,10 @@ final class NotchPanel: NSPanel {
         let rect = NSRect(x: x, y: y, width: contentSize.width, height: contentSize.height)
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.34
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.85, 0.25, 1.0)
+                // Matches the SwiftUI .timingCurve in NotchView. Single curve
+                // for both window resize and content morph → no desync.
+                ctx.duration = 0.42
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.18, 1.0, 0.30, 1.0)
                 self.animator().setFrame(rect, display: true)
             }
         } else {

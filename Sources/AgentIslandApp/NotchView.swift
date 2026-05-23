@@ -22,6 +22,10 @@ enum NotchWings {
 
 /// Approximate radius of the physical notch's bottom corners on M-series MBPs.
 private let kHardwareNotchBottomRadius: CGFloat = 9
+/// Outward radius for the notch piece's top corners. Makes the visible wings
+/// look like floating pills emerging from below the notch instead of square
+/// extensions of it.
+private let kNotchTopOuterRadius: CGFloat = 9
 
 // MARK: - Root view
 
@@ -52,33 +56,73 @@ struct NotchView: View {
                     .padding(.vertical, 8)
             }
         }
-        // Single transition animation, only on state changes. No periodic animations.
-        .animation(.spring(response: 0.36, dampingFraction: 0.84), value: uiState)
+        // Unified timing for both the panel resize (driven by AppKit) and the
+        // content morph (driven by SwiftUI). Same curve and duration so they
+        // never desync. The custom timing is a smooth ease-out: starts gentle,
+        // resolves quickly. No spring overshoot — which the user reported as
+        // "not smooth, keeps re-expanding".
+        .animation(.timingCurve(0.18, 1.0, 0.30, 1.0, duration: 0.42), value: uiState)
     }
 
     // MARK: notch piece (always)
 
     private var notchPiece: some View {
         let shape = UnevenRoundedRectangle(
-            topLeadingRadius: 0,
+            topLeadingRadius: kNotchTopOuterRadius,
             bottomLeadingRadius: kHardwareNotchBottomRadius,
             bottomTrailingRadius: kHardwareNotchBottomRadius,
-            topTrailingRadius: 0,
+            topTrailingRadius: kNotchTopOuterRadius,
             style: .continuous
         )
-        return shape
-            .fill(Color.black)
-            // Ambient outline glow — only present when something demands attention.
-            // Calm state = no glow at all. Silence is default.
-            .overlay(
-                shape
-                    .stroke(ambientGlowColor, lineWidth: 1.2)
-                    .blur(radius: 3)
-                    .opacity(ambientGlowColor == .clear ? 0 : 1)
-            )
-            .shadow(color: ambientGlowColor.opacity(0.55), radius: 9, x: 0, y: 1)
-            .frame(width: geometry.notchWidth + NotchWings.total,
-                   height: geometry.notchHeight)
+        return ZStack {
+            shape
+                .fill(Color.black)
+                .overlay(
+                    // Ambient outline glow — only when error / needs-you.
+                    // Calm = no glow. Silence is default.
+                    shape
+                        .stroke(ambientGlowColor, lineWidth: 1.2)
+                        .blur(radius: 3)
+                        .opacity(ambientGlowColor == .clear ? 0 : 1)
+                )
+                .shadow(color: ambientGlowColor.opacity(0.55), radius: 9, x: 0, y: 1)
+
+            // Compact-mode wing dots: one tiny dot per active agent, max 4,
+            // priority-sorted. Skipped in peek/expanded so they don't double up
+            // with the larger content there.
+            if uiState == .compact {
+                compactWingDots
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 7)
+            }
+        }
+        .frame(width: geometry.notchWidth + NotchWings.total,
+               height: geometry.notchHeight)
+    }
+
+    /// Up to 4 small dots placed inside the visible left wing.
+    /// Order: error > waiting > thinking > running > done.
+    private var compactWingDots: some View {
+        let priority: (AgentState) -> Int = { a in
+            if a.status == .error { return 0 }
+            if a.needs_attention || a.status == .waiting_input { return 1 }
+            if a.status == .thinking { return 2 }
+            if a.status == .running  { return 3 }
+            if a.status == .done     { return 4 }
+            return 5
+        }
+        let visible = store.agents
+            .filter { !$0.isStale && $0.status != .idle }
+            .sorted { priority($0) < priority($1) }
+            .prefix(4)
+        return HStack(spacing: 4) {
+            ForEach(Array(visible), id: \.agent_id) { agent in
+                Circle()
+                    .fill(dotColor(for: agent))
+                    .frame(width: 4, height: 4)
+                    .shadow(color: dotColor(for: agent).opacity(0.5), radius: 1.2)
+            }
+        }
     }
 
     /// The single color of the notch's outline glow.
@@ -240,15 +284,32 @@ private struct AgentPeekRow: View {
 private struct ExpandedContent: View {
     @ObservedObject var store: AgentStore
 
+    /// What the expanded view shows. Keeps the panel quiet: hides idle agents
+    /// (no current task) and stale ones (no heartbeat). Sorted with most-urgent
+    /// first: errors → needs-you → thinking → running → done.
+    private var visibleAgents: [AgentState] {
+        let priority: (AgentState) -> Int = { a in
+            if a.status == .error { return 0 }
+            if a.needs_attention || a.status == .waiting_input { return 1 }
+            if a.status == .thinking { return 2 }
+            if a.status == .running  { return 3 }
+            if a.status == .done     { return 4 }
+            return 5
+        }
+        return store.agents
+            .filter { !$0.isStale && $0.status != .idle }
+            .sorted { priority($0) < priority($1) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
             Divider().background(Color.white.opacity(0.08))
-            if store.agents.isEmpty {
+            if visibleAgents.isEmpty {
                 emptyState
             } else {
                 VStack(spacing: 6) {
-                    ForEach(store.agents) { agent in
+                    ForEach(visibleAgents) { agent in
                         ExpandedAgentRow(agent: agent)
                     }
                 }
@@ -272,17 +333,18 @@ private struct ExpandedContent: View {
     }
 
     private var summary: String {
-        let n = store.agents.count
-        let attn = store.agents.filter { $0.needs_attention }.count
-        if attn > 0 { return "\(n) agent\(n == 1 ? "" : "s") · \(attn) need\(attn == 1 ? "s" : "") you" }
-        return "\(n) agent\(n == 1 ? "" : "s")"
+        let n = visibleAgents.count
+        let attn = visibleAgents.filter { $0.needs_attention || $0.status == .waiting_input }.count
+        if attn > 0 { return "\(n) active · \(attn) need\(attn == 1 ? "s" : "") you" }
+        if n == 0 { return "all calm" }
+        return "\(n) active"
     }
 
     private var emptyState: some View {
         HStack(spacing: 8) {
-            Image(systemName: "circle.dotted")
+            Image(systemName: "moon.zzz")
                 .foregroundColor(.white.opacity(0.4))
-            Text("No agents reporting yet.")
+            Text("All calm.")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.white.opacity(0.55))
         }

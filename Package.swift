@@ -5,7 +5,7 @@ let package = Package(
     name: "AgentIsland",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "AgentIsland", targets: ["AgentIslandApp"]),
+        .executable(name: "AgentIslandApp", targets: ["AgentIslandApp"]),
         .executable(name: "agentisland", targets: ["AgentIslandCLI"]),
     ],
     targets: [
