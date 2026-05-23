@@ -8,36 +8,77 @@ struct NotchGeometry: Equatable {
     let notchWidth: CGFloat
     let notchHeight: CGFloat
     let centerX: CGFloat
-    let topY: CGFloat        // y-coordinate of screen's top edge (AppKit: maxY)
+    let topY: CGFloat        // AppKit y-coord of screen's top edge (== frame.maxY)
     let hasRealNotch: Bool
+    let menuBarHeight: CGFloat
 
     static func current(for screen: NSScreen) -> NotchGeometry {
         let frame = screen.frame
-        let topInset = screen.safeAreaInsets.top  // > 0 on notched displays
+        let topInset = screen.safeAreaInsets.top
         let real = topInset > 0
 
-        let notchH: CGFloat = real ? topInset : 32
-        let notchW: CGFloat
-        if real {
-            // The notch is the horizontal gap between the two auxiliary top areas.
-            let leftMaxX = screen.auxiliaryTopLeftArea?.maxX ?? frame.midX - 100
-            let rightMinX = screen.auxiliaryTopRightArea?.minX ?? frame.midX + 100
-            notchW = max(160, rightMinX - leftMaxX)
-        } else {
-            notchW = 200
+        // Height of the menu-bar band. On notched displays it equals the notch height
+        // (the menu bar wraps around the notch and is its full height).
+        // On non-notched displays we use ~24pt (standard macOS menu bar) for the gap.
+        let menuBarH: CGFloat = real ? topInset : 24
+
+        // Try to read the actual notch width from the auxiliary top areas.
+        // auxiliaryTopLeftArea is the menu-bar region LEFT of the notch;
+        // auxiliaryTopRightArea is RIGHT of it. The gap between them is the notch.
+        var notchW: CGFloat = 0
+        var notchH: CGFloat = real ? topInset : 24
+        if real,
+           let leftArea = screen.auxiliaryTopLeftArea,
+           let rightArea = screen.auxiliaryTopRightArea {
+            let gap = rightArea.minX - leftArea.maxX
+            if gap > 100, gap < 400 {
+                notchW = gap
+            }
+            // The auxiliary areas' height equals the menu bar/notch height; trust it.
+            notchH = max(notchH, leftArea.height)
         }
+
+        // Fallback by hardware model when auxiliary areas don't yield a width.
+        if notchW == 0 {
+            notchW = fallbackNotchWidth(forModel: hardwareModel(), hasRealNotch: real)
+        }
+
         return NotchGeometry(
             screenFrame: frame,
             notchWidth: notchW,
             notchHeight: notchH,
             centerX: frame.midX,
             topY: frame.maxY,
-            hasRealNotch: real
+            hasRealNotch: real,
+            menuBarHeight: menuBarH
         )
     }
 }
 
-/// Borderless panel pinned flush with the top of the display, centered over the notch.
+/// `sysctlbyname("hw.model")` → e.g. "MacBookPro18,3", "Mac14,7".
+private func hardwareModel() -> String {
+    var size = 0
+    sysctlbyname("hw.model", nil, &size, nil, 0)
+    var bytes = [CChar](repeating: 0, count: size)
+    sysctlbyname("hw.model", &bytes, &size, nil, 0)
+    return String(cString: bytes)
+}
+
+/// Hard-coded fallback widths in case auxiliary areas don't report.
+/// Reference: real measurements at default scaling.
+private func fallbackNotchWidth(forModel model: String, hasRealNotch: Bool) -> CGFloat {
+    guard hasRealNotch else { return 180 }
+    // 14"/16" MBP M1 Pro/Max, M2/M3/M4 Pro/Max — notch ≈ 200pt wide
+    if model.hasPrefix("MacBookPro") { return 200 }
+    // MacBookAir M2/M3 13"/15" — notch ≈ 175pt wide (smaller)
+    if model.hasPrefix("MacBookAir") { return 175 }
+    // Newer "Mac14,*" / "Mac15,*" identifiers — generic safe value
+    return 200
+}
+
+// MARK: - Panel
+
+/// Borderless panel pinned flush with the top of the display.
 final class NotchPanel: NSPanel {
     init(rootView: NSView) {
         super.init(
@@ -63,14 +104,17 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    func setFrameForGeometry(_ geo: NotchGeometry, contentWidth: CGFloat, contentHeight: CGFloat, animated: Bool) {
+    func setFrameForGeometry(_ geo: NotchGeometry,
+                             contentWidth: CGFloat,
+                             contentHeight: CGFloat,
+                             animated: Bool) {
         let x = geo.centerX - contentWidth / 2
         let y = geo.topY - contentHeight
         let rect = NSRect(x: x, y: y, width: contentWidth, height: contentHeight)
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.34
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.85, 0.25, 1.0)
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.85, 0.25, 1.0)
                 self.animator().setFrame(rect, display: true)
             }
         } else {
@@ -79,7 +123,8 @@ final class NotchPanel: NSPanel {
     }
 }
 
-/// Drives state transitions and hosts the SwiftUI content.
+// MARK: - Host controller
+
 @MainActor
 final class NotchHostController {
     private let store: AgentStore
@@ -99,9 +144,23 @@ final class NotchHostController {
 
     init(store: AgentStore) {
         self.store = store
-        self.geometry = NotchGeometry.current(for: NSScreen.main ?? NSScreen.screens[0])
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        self.geometry = NotchGeometry.current(for: screen)
         self.rootContainer = HoverTrackingView()
         self.panel = NotchPanel(rootView: rootContainer)
+
+        if ProcessInfo.processInfo.environment["AGENTISLAND_LOG"] != nil {
+            FileHandle.standardError.write(Data("""
+            [AgentIsland] geometry detected:
+              hasRealNotch = \(geometry.hasRealNotch)
+              notchWidth   = \(geometry.notchWidth)
+              notchHeight  = \(geometry.notchHeight)
+              menuBarH     = \(geometry.menuBarHeight)
+              screen       = \(geometry.screenFrame)
+              hw.model     = \(hardwareModel())
+
+            """.utf8))
+        }
 
         rebuildHostingView()
         rootContainer.onHoverChange = { [weak self] hovering in
@@ -109,32 +168,27 @@ final class NotchHostController {
             self?.recomputeState()
         }
 
-        // Trigger auto-peek when something newly needs attention.
         store.$attentionTick
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.beginAutoPeek(duration: 6) }
+            .sink { [weak self] _ in self?.beginAutoPeek(duration: 8) }
             .store(in: &cancellables)
 
-        // Brief peek on any status change.
         store.$statusChangeTick
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.beginAutoPeek(duration: 2.5) }
             .store(in: &cancellables)
 
-        // Tick to evaluate auto-peek expiry and refresh elapsed labels.
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
 
-        // Re-evaluate when agents change (e.g. an attention clears).
         store.$agents
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.tick() }
             .store(in: &cancellables)
 
-        // Re-detect geometry on display changes.
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
@@ -150,22 +204,16 @@ final class NotchHostController {
 
     private func tick() {
         recomputeState()
-        // Re-layout each tick so expanded height tracks agent count.
         layout(animated: true)
     }
 
     private func recomputeState() {
-        let now = Date()
-        let autoPeeking = now < autoPeekUntil
-        let hasPending = store.attentionAgent != nil
-        let hasRunning = store.agents.contains { !$0.isStale && $0.status == .running }
+        let autoPeeking = Date() < autoPeekUntil
 
         let target: NotchUIState
         if hoverActive {
             target = .expanded
-        } else if hasPending {
-            target = .peek                       // attention always peeks until resolved
-        } else if autoPeeking && (hasRunning || !store.agents.isEmpty) {
+        } else if autoPeeking && !store.agents.isEmpty {
             target = .peek
         } else {
             target = .compact
@@ -190,25 +238,36 @@ final class NotchHostController {
 
     // MARK: layout
 
-    private func contentSize(for state: NotchUIState) -> CGSize {
+    private func bodySize(for state: NotchUIState) -> CGSize {
         let g = geometry
         switch state {
         case .compact:
-            return CGSize(width: g.notchWidth, height: g.notchHeight)
+            // Body is invisible but still 12pt tall so the hover area
+            // extends below the hardware notch and can catch the cursor.
+            // Also gives room for a small static indicator when attention is pending.
+            return CGSize(width: g.notchWidth, height: 12)
         case .peek:
-            let w = max(g.notchWidth + 80, 360)
-            return CGSize(width: w, height: g.notchHeight + 22)
+            let w = max(g.notchWidth + 60, 320)
+            return CGSize(width: w, height: 46)
         case .expanded:
             let n = store.agents.count
-            let listH = n == 0 ? 32 : CGFloat(n) * 46 + 4
+            let listH = n == 0 ? 30 : CGFloat(n) * 46 + 4
             let w = max(g.notchWidth + 180, 460)
-            let h = g.notchHeight + 40 /* header */ + listH + 16
+            let h = 36 /* header */ + listH + 16
             return CGSize(width: w, height: h)
         }
     }
 
+    private func windowSize(for state: NotchUIState) -> CGSize {
+        let g = geometry
+        let body = bodySize(for: state)
+        let totalW = max(g.notchWidth, body.width)
+        let totalH = g.notchHeight + body.height
+        return CGSize(width: totalW, height: totalH)
+    }
+
     private func layout(animated: Bool) {
-        let size = contentSize(for: uiState)
+        let size = windowSize(for: uiState)
         panel.setFrameForGeometry(geometry,
                                   contentWidth: size.width,
                                   contentHeight: size.height,
@@ -216,7 +275,8 @@ final class NotchHostController {
     }
 
     private func rebuildHostingView() {
-        let view = NotchView(store: store, geometry: geometry, uiState: uiState)
+        let view = NotchView(store: store, geometry: geometry, uiState: uiState,
+                             bodySize: bodySize(for: uiState))
         let hosting = NSHostingView(rootView: AnyView(view))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         rootContainer.subviews.forEach { $0.removeFromSuperview() }
@@ -232,13 +292,13 @@ final class NotchHostController {
 
     private func rebuildView() {
         hostingView.rootView = AnyView(
-            NotchView(store: store, geometry: geometry, uiState: uiState)
+            NotchView(store: store, geometry: geometry, uiState: uiState,
+                      bodySize: bodySize(for: uiState))
         )
     }
 }
 
-/// NSView that reports mouse enter/exit with a tolerance margin so the
-/// expand gesture feels generous (matches iOS Dynamic Island).
+/// Tracks hover with no margin — entrance is the visible blob region.
 final class HoverTrackingView: NSView {
     var onHoverChange: ((Bool) -> Void)?
     private var tracker: NSTrackingArea?
