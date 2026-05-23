@@ -59,6 +59,20 @@ sudo ln -sf "$(pwd)/.build/release/agentisland" /usr/local/bin/agentisland
 
 This merges hook entries into `~/.claude/settings.json` so that Claude Code reports `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd` to AgentIsland. Now every Claude Code session will appear in your pill while it works, turn orange when it's waiting for your approval, and disappear shortly after exit.
 
+## Connecting Codex (OpenAI)
+
+AgentIsland runs an OTLP/HTTP receiver on `127.0.0.1:4318/v1/logs` so Codex telemetry flows in with no hooks. Configure once:
+
+```bash
+./scripts/install-codex.sh
+```
+
+This appends an `[otel]` block to `~/.codex/config.toml` that points Codex's OTel exporter at the AgentIsland receiver (JSON protocol, logs only). Restart any running Codex sessions. They will show up in the pill with a `codex` icon (`</>`), track tool calls and approval requests, and clear on session end.
+
+To verify the receiver is up: `curl http://127.0.0.1:4318/healthz` → `ok`.
+
+If port 4318 is in use (e.g. you also run AgentNotch), AgentIsland logs the failure and runs without OTLP — hooks-based Claude Code reporting still works.
+
 ## Connecting anything else
 
 Your script just needs to write a JSON file. Easiest way:
@@ -122,8 +136,8 @@ p.write_text(json.dumps({
 
 - [x] P0 — SwiftUI notch UI + FS watcher + CLI
 - [x] P1 — Claude Code hooks adapter
-- [ ] P2 — Click-to-focus (jump back to the agent's terminal)
-- [ ] P3 — PTY wrapper `agentisland wrap -- <cmd>` for non-hookable CLIs (Codex)
+- [x] P2 — Codex via OTLP/HTTP receiver (port 4318, JSON protocol)
+- [ ] P3 — Click-to-focus (jump back to the agent's terminal via OSC 7 + AppleScript)
 - [ ] P4 — Python / TS SDKs
 - [ ] P5 — Timeline view (SQLite history)
 - [ ] P6 — Remote relay (agents on other machines / containers)
