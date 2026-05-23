@@ -191,10 +191,11 @@ enum OTLPEventMapper {
             return
         }
 
-        // ---- API request / inference in progress ----
+        // ---- API request / inference in progress → thinking ----
         if event.contains("api_request") || event.contains("inference")
+            || event.contains("model_call")
             || body.contains("calling model") || body.contains("api.request") {
-            state.status = .running
+            state.status = .thinking
             let model = record.attr("model", "model.name", "ai.model") ?? "model"
             state.task = "Thinking with \(model)"
             return

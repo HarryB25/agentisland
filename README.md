@@ -1,10 +1,31 @@
 # AgentIsland
 
-A Dynamic-Island-style status bar for the AI agents living on your Mac.
+A thing that lives in your MacBook notch. You always know what your agents are doing without looking at them, switching windows, or interrupting what you're doing.
 
-You probably have several agents running on your machine — Claude Code, Codex, openclaw, Hermes, your own scripts. They run in different terminals, different windows. **You forget which ones are working, which are stuck waiting for your approval, and which finished an hour ago.** AgentIsland is a small floating pill at the top of your screen that always tells you.
+You probably have several agents running on your machine — Claude Code, Codex, openclaw, Hermes, your own scripts. They run in different terminals, different windows. **You forget which ones are working, which are stuck waiting for your approval, and which finished an hour ago.** AgentIsland sits in the notch. Calm by default. Glows yellow when one needs you. Red when one errors out. Otherwise — silence.
 
-> Status: early MVP. Works on macOS 13+. Currently ships a Claude Code adapter; protocol is intentionally simple so any agent can join.
+> Status: early MVP. Works on macOS 13+. Currently ships a Claude Code hooks adapter and an OTLP/HTTP receiver for Codex; the protocol is intentionally simple so any agent can join.
+
+## Color language (fixed, memorize once)
+
+| Color | Meaning |
+|---|---|
+| 🟣 purple | thinking (inference / reasoning) |
+| 🟢 green | running (executing a tool) |
+| 🟡 yellow | needs you (approval, question, plan review) |
+| 🔵 blue | done (finished, awaiting your dismissal) |
+| 🔴 red | error |
+| ⚪ gray | idle / stale |
+
+**Ambient glow on the notch outline:** calm = no glow. Yellow when any agent needs you. Red when any errors. Running and thinking do **not** glow — they are background activity, not interruptions.
+
+## Principles
+
+1. **Don't interrupt.** Every feature must let you stay in your editor.
+2. **Silence is default.** Calm = imperceptible. The pill surfaces only when needed.
+3. **One glance, no thought.** Color = information. The mapping above is fixed.
+4. **Open protocol.** Any agent that writes a JSON file gets a dot. Not tied to one product.
+5. **Light.** < 50MB RAM, near-zero CPU, autostart, invisible.
 
 ![collapsed](docs/collapsed.png) ![expanded](docs/expanded.png)
 
@@ -128,8 +149,8 @@ p.write_text(json.dumps({
 }
 ```
 
-- `status`: `running` | `waiting_input` | `idle` | `done` | `error`
-- `needs_attention`: orange pulse + badge. Use it for "user input required".
+- `status`: `thinking` | `running` | `waiting_input` | `idle` | `done` | `error`
+- `needs_attention`: lights the notch yellow + escalates the row. Use it for "user input required".
 - `ttl_seconds`: if `updated_at` is older than this, the dot grays out as stale.
 
 ## Roadmap
@@ -137,10 +158,12 @@ p.write_text(json.dumps({
 - [x] P0 — SwiftUI notch UI + FS watcher + CLI
 - [x] P1 — Claude Code hooks adapter
 - [x] P2 — Codex via OTLP/HTTP receiver (port 4318, JSON protocol)
-- [ ] P3 — Click-to-focus (jump back to the agent's terminal via OSC 7 + AppleScript)
-- [ ] P4 — Python / TS SDKs
-- [ ] P5 — Timeline view (SQLite history)
-- [ ] P6 — Remote relay (agents on other machines / containers)
+- [ ] P3 — In-notch approval / question answer / plan feedback (two-way protocol)
+- [ ] P4 — Click-to-focus terminal (OSC 7 + AppleScript for Ghostty / iTerm2 / Terminal)
+- [ ] P5 — Python / TS SDKs
+- [ ] P6 — Quiet completion sound (optional, off by default)
+
+**Explicitly not on the roadmap:** task history view, cloud sync / accounts, agent config management, any UI outside the notch.
 
 ## Contributing
 

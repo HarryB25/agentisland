@@ -59,41 +59,38 @@ struct NotchView: View {
     // MARK: notch piece (always)
 
     private var notchPiece: some View {
-        ZStack {
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: kHardwareNotchBottomRadius,
-                bottomTrailingRadius: kHardwareNotchBottomRadius,
-                topTrailingRadius: 0,
-                style: .continuous
-            )
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: kHardwareNotchBottomRadius,
+            bottomTrailingRadius: kHardwareNotchBottomRadius,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+        return shape
             .fill(Color.black)
-
-            // Tiny visible status dot in the left wing (compact only — peek/expanded
-            // has its own rich UI below).
-            if uiState == .compact, let dot = compactDotColor {
-                HStack(spacing: 0) {
-                    Spacer()
-                        .frame(width: NotchWings.left * 0.45)  // ~13pt in from left edge
-                    Circle()
-                        .fill(dot)
-                        .frame(width: 5, height: 5)
-                        .shadow(color: dot.opacity(0.5), radius: 1.5)
-                    Spacer()
-                }
-            }
-        }
-        .frame(width: geometry.notchWidth + NotchWings.total,
-               height: geometry.notchHeight)
+            // Ambient outline glow — only present when something demands attention.
+            // Calm state = no glow at all. Silence is default.
+            .overlay(
+                shape
+                    .stroke(ambientGlowColor, lineWidth: 1.2)
+                    .blur(radius: 3)
+                    .opacity(ambientGlowColor == .clear ? 0 : 1)
+            )
+            .shadow(color: ambientGlowColor.opacity(0.55), radius: 9, x: 0, y: 1)
+            .frame(width: geometry.notchWidth + NotchWings.total,
+                   height: geometry.notchHeight)
     }
 
-    /// Primary color summarizing all agents (priority: attention > running > idle).
-    private var compactDotColor: Color? {
+    /// The single color of the notch's outline glow.
+    /// Priority: error > needs-you > calm. Running / thinking do NOT glow —
+    /// they are normal states that should not draw the user's eye.
+    private var ambientGlowColor: Color {
         let active = store.agents.filter { !$0.isStale }
-        if active.isEmpty { return nil }
-        if active.contains(where: { $0.needs_attention }) { return .orange }
-        if active.contains(where: { $0.status == .running }) { return .green }
-        return Color(white: 0.45)
+        if active.contains(where: { $0.status == .error }) { return .red }
+        if active.contains(where: { $0.needs_attention || $0.status == .waiting_input }) {
+            return AgentColors.yellow
+        }
+        return .clear
     }
 
     // MARK: body
@@ -234,7 +231,7 @@ private struct AgentPeekRow: View {
     }
 
     private var secondaryColor: Color {
-        agent.needs_attention ? Color.orange.opacity(0.95) : Color.white.opacity(0.55)
+        agent.needs_attention ? AgentColors.yellow.opacity(0.95) : Color.white.opacity(0.55)
     }
 }
 
@@ -332,7 +329,7 @@ private struct ExpandedAgentRow: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    agent.needs_attention ? Color.orange.opacity(0.4) : Color.white.opacity(0.05),
+                    agent.needs_attention ? AgentColors.yellow.opacity(0.45) : Color.white.opacity(0.05),
                     lineWidth: 0.5
                 )
         )
@@ -351,6 +348,7 @@ private struct ExpandedAgentRow: View {
     private var statusLabel: String {
         if agent.isStale { return "stale" }
         switch agent.status {
+        case .thinking:       return "thinking"
         case .running:        return "running"
         case .waiting_input:  return "needs you"
         case .idle:           return "idle"
@@ -371,16 +369,33 @@ private struct ExpandedAgentRow: View {
 
 // MARK: - Shared
 
+// MARK: - Color language (fixed across the product)
+//
+//   purple → thinking (reasoning, awaiting model output)
+//   green  → running  (executing a tool)
+//   yellow → needs you (approval, question, plan review)
+//   blue   → done     (finished, awaiting your dismissal)
+//   red    → error
+//   gray   → idle / stale
+
 func dotColor(for a: AgentState) -> Color {
     if a.isStale { return Color(white: 0.5) }
-    if a.needs_attention { return .orange }
+    if a.status == .error { return .red }
+    if a.needs_attention || a.status == .waiting_input { return AgentColors.yellow }
     switch a.status {
+    case .thinking:       return AgentColors.purple
     case .running:        return .green
-    case .waiting_input:  return .orange
-    case .idle:           return Color(red: 0.45, green: 0.65, blue: 1.0)
-    case .done:           return Color(white: 0.5)
-    case .error:          return .red
+    case .waiting_input:  return AgentColors.yellow   // (unreachable; handled above)
+    case .idle:           return Color(white: 0.5)
+    case .done:           return AgentColors.blue
+    case .error:          return .red                 // (unreachable; handled above)
     }
+}
+
+enum AgentColors {
+    static let purple = Color(red: 0.70, green: 0.55, blue: 0.95)
+    static let yellow = Color(red: 1.00, green: 0.82, blue: 0.15)
+    static let blue   = Color(red: 0.45, green: 0.72, blue: 1.00)
 }
 
 struct StatusDot: View {

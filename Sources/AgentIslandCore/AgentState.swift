@@ -4,7 +4,18 @@ import Foundation
 /// ~/.agentisland/state/<agent_id>.json
 public struct AgentState: Codable, Identifiable, Equatable {
     public enum Status: String, Codable {
-        case running, waiting_input, idle, done, error
+        /// Inference / reasoning in progress (no tool action yet).
+        case thinking
+        /// Executing a tool (shell, edit, etc.).
+        case running
+        /// Blocked on the user (approval, question, plan review).
+        case waiting_input
+        /// Session open but no current task.
+        case idle
+        /// Task complete; surface result and let user dismiss.
+        case done
+        /// Failure that requires the user's attention.
+        case error
     }
 
     public var schema: Int
