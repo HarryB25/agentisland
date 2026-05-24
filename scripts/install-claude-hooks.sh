@@ -1,23 +1,28 @@
 #!/usr/bin/env bash
 # install-claude-hooks.sh
-# Merge AgentIsland hooks into ~/.claude/settings.json using the absolute
-# path to the locally-built agentisland binary (no sudo, no PATH dance).
+# Merge AgentIsland hooks into ~/.claude/settings.json using the installed
+# `agentisland` CLI when available, or the local build from a source checkout.
 # Idempotent — re-running is safe.
 set -euo pipefail
 
 SETTINGS="${HOME}/.claude/settings.json"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Pick the freshest of release/debug.
-BIN_RELEASE="$REPO/.build/release/agentisland"
-BIN_DEBUG="$REPO/.build/debug/agentisland"
-if [[ -x "$BIN_RELEASE" && ( ! -x "$BIN_DEBUG" || "$BIN_RELEASE" -nt "$BIN_DEBUG" ) ]]; then
-  BIN="$BIN_RELEASE"
-elif [[ -x "$BIN_DEBUG" ]]; then
-  BIN="$BIN_DEBUG"
+# Prefer an installed CLI on PATH. Fall back to the repo-local build when
+# running from a source checkout.
+if command -v agentisland >/dev/null 2>&1; then
+  BIN="$(command -v agentisland)"
 else
-  echo "error: agentisland binary not found. Run 'swift build' first." >&2
-  exit 1
+  BIN_RELEASE="$REPO/.build/release/agentisland"
+  BIN_DEBUG="$REPO/.build/debug/agentisland"
+  if [[ -x "$BIN_RELEASE" && ( ! -x "$BIN_DEBUG" || "$BIN_RELEASE" -nt "$BIN_DEBUG" ) ]]; then
+    BIN="$BIN_RELEASE"
+  elif [[ -x "$BIN_DEBUG" ]]; then
+    BIN="$BIN_DEBUG"
+  else
+    echo "error: agentisland binary not found. Install the CLI or run 'swift build' first." >&2
+    exit 1
+  fi
 fi
 echo "Using binary: $BIN"
 
@@ -62,4 +67,4 @@ PY
 
 echo ""
 echo "Done. Existing Claude Code sessions will pick up hooks on their next event."
-echo "AgentIsland must be running (nohup .build/debug/AgentIsland & disown)."
+echo "AgentIsland must be running for hook updates to appear in the island."

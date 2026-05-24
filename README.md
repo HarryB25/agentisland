@@ -1,216 +1,218 @@
 # AgentIsland
 
-A thing that lives in your MacBook notch. You always know what your agents are doing without looking at them, switching windows, or interrupting what you're doing.
+Agent activity for your Mac notch.
 
-You probably have several agents running on your machine — Claude Code, Codex, openclaw, Hermes, your own scripts. They run in different terminals, different windows. **You forget which ones are working, which are stuck waiting for your approval, and which finished an hour ago.** AgentIsland sits in the notch. Calm by default. Glows yellow when one needs you. Red when one errors out. Otherwise — silence.
+AgentIsland is a native macOS notch app for people who run coding agents all day. Claude Code in one terminal. Codex in another. A local script somewhere else. Something is thinking, something is blocked, something finished ten minutes ago, and the cost of checking all of it is your focus.
 
-> Status: early MVP. Works on macOS 13+. Currently ships a Claude Code hooks adapter and an OTLP/HTTP receiver for Codex; the protocol is intentionally simple so any agent can join.
+AgentIsland keeps one live surface at the top of the screen:
 
-## Color language (fixed, memorize once)
+- calm when work is progressing normally
+- visible when an agent needs approval or hits an error
+- brief completion peeks when a task finishes
+- open protocol so any agent can join
 
-| Color | Meaning |
-|---|---|
-| 🟣 purple | thinking (inference / reasoning) |
-| 🟢 green | running (executing a tool) |
-| 🟡 yellow | needs you (approval, question, plan review) |
-| 🔵 blue | done (finished, awaiting your dismissal) |
-| 🔴 red | error |
-| ⚪ gray | idle / stale |
+It is designed to feel like a system affordance, not another dashboard.
 
-**Ambient glow on the notch outline:** calm = no glow. Yellow when any agent needs you. Red when any errors. Running and thinking do **not** glow — they are background activity, not interruptions.
+## Install
 
-## Principles
+Choose the path that matches how you want to use it.
 
-1. **Don't interrupt.** Every feature must let you stay in your editor.
-2. **Silence is default.** Calm = imperceptible. The pill surfaces only when needed.
-3. **One glance, no thought.** Color = information. The mapping above is fixed.
-4. **Open protocol.** Any agent that writes a JSON file gets a dot. Not tied to one product.
-5. **Light.** < 50MB RAM, near-zero CPU, autostart, invisible.
+| Path | Best for | Command |
+| --- | --- | --- |
+| DMG | Normal macOS install | [Download the latest release](https://github.com/HarryB25/agentisland/releases/latest) |
+| Homebrew Cask | Developers who want upgrades via Brew | `brew tap HarryB25/agentisland https://github.com/HarryB25/agentisland && brew install --cask agentisland` |
+| CLI only | Headless adapters, custom agents, automation | `curl -fsSL https://github.com/HarryB25/agentisland/releases/latest/download/install.sh \| bash` |
+| CLI + app | One-line setup from Terminal | `curl -fsSL https://github.com/HarryB25/agentisland/releases/latest/download/install.sh \| bash -s -- --app` |
 
-![collapsed](docs/collapsed.png) ![expanded](docs/expanded.png)
+Release assets include:
 
-## How it works
+- `agentisland-macos-arm64.dmg`
+- `agentisland-macos-arm64.zip`
+- `agentisland-cli-macos-arm64.tar.gz`
+- `checksums-arm64.txt`
+- `install.sh`
 
-```
-┌─────────────────────────────────────────────────┐
-│   Notch UI (SwiftUI app, always on top)          │
-└──────────────▲──────────────────────────────────┘
-               │ reads
-┌──────────────┴──────────────────────────────────┐
-│   ~/.agentisland/state/<agent_id>.json           │  ← single source of truth
-└──────────────▲──────────────────────────────────┘
-               │ writes
-   ┌───────────┼───────────┬─────────────┐
-   │           │           │             │
-Claude Code  Codex      Hermes       Your script
-(via hooks)  (PTY wrap) (SDK)        (`agentisland report ...`)
-```
+Intel builds follow the same naming pattern with `x86_64`.
 
-Each agent writes a small JSON file. The UI watches the directory with FSEvents and renders. No daemon, no socket, no database. New adapters are ~20 lines.
+The desktop app and the CLI are intentionally separate:
 
-## Quick start
+- use the app if you only want the notch surface
+- use the CLI if you want adapter install scripts, custom agent reporting, or automation
+- use `install.sh --app` if you want both in one pass
 
-Requires macOS 13+ and Swift 5.9 (`xcode-select --install`).
+## First minute
+
+1. Launch `AgentIsland.app`.
+2. Keep it running in the background.
+3. Install the CLI helpers if you want first-party adapters.
+4. Connect the agents you already use.
+
+Claude Code:
 
 ```bash
-git clone https://github.com/YOUR/agentisland.git
-cd agentisland
-swift build -c release
-
-# Run the UI (stays floating; quit with Cmd+Q from the Activity Monitor)
-swift run AgentIslandApp &
-
-# Drop demo agents to see all three status types
-swift run agentisland demo
+~/.local/share/agentisland/scripts/install-claude-hooks.sh
 ```
 
-You should now see a black pill at the top-center of your screen with three colored dots — green (running), orange pulsing (needs attention), blue (idle). Hover to expand.
-
-To put the CLI on your PATH:
+Codex:
 
 ```bash
-sudo ln -sf "$(pwd)/.build/release/agentisland" /usr/local/bin/agentisland
+~/.local/share/agentisland/scripts/install-codex.sh
 ```
 
-## Connecting Claude Code
+If you are running from source instead of a release build, use:
 
 ```bash
 ./scripts/install-claude-hooks.sh
-```
-
-This merges hook entries into `~/.claude/settings.json` so that Claude Code reports `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd` to AgentIsland. Now every Claude Code session will appear in your pill while it works, turn orange when it's waiting for your approval, and disappear shortly after exit.
-
-## Connecting Codex (OpenAI)
-
-AgentIsland runs an OTLP/HTTP receiver on `127.0.0.1:4318/v1/logs` so Codex telemetry flows in with no hooks. Configure once:
-
-```bash
 ./scripts/install-codex.sh
 ```
 
-This appends an `[otel]` block to `~/.codex/config.toml` that points Codex's OTel exporter at the AgentIsland receiver (JSON protocol, logs only). Restart any running Codex sessions. They will show up in the pill with a `codex` icon (`</>`), track tool calls and approval requests, and clear on session end.
+## What it feels like
 
-To verify the receiver is up: `curl http://127.0.0.1:4318/healthz` → `ok`.
+AgentIsland has one job: make agent state glanceable.
 
-If port 4318 is in use (e.g. you also run AgentNotch), AgentIsland logs the failure and runs without OTLP — hooks-based Claude Code reporting still works.
+| State | Meaning | Behavior |
+| --- | --- | --- |
+| `thinking` | model is reasoning | visible but quiet |
+| `running` | tool call or execution in progress | visible but quiet |
+| `waiting_input` | approval, question, or option selection | peeks automatically |
+| `done` | task finished | peeks briefly, then gets out of the way |
+| `error` | action failed or needs intervention | peeks automatically and escalates visually |
 
-## Connecting anything else
+The compact notch stays almost silent. Hover expands it directly. High-priority states can proactively peek without forcing a full expansion.
 
-Your script just needs to write a JSON file. Easiest way:
+## Supported agents
 
-```bash
-agentisland report \
-  --id my-agent-1 \
-  --kind custom \
-  --name "Crawl filings" \
-  --status running \
-  --task "Downloading 10-Q PDFs..."
+Current integrations:
 
-# When you need user input:
-agentisland report --id my-agent-1 --status waiting_input --attention \
-  --task "Approve download of 12 large PDFs?"
+- Claude Code via hooks
+- Codex via local OTLP receiver plus transcript fallback
+- Custom agents via `agentisland report`
 
-# When done:
-agentisland report --id my-agent-1 --status done --task "12 PDFs saved"
+The protocol is intentionally simple. If a tool can write one JSON state file, it can show up in the island.
+
+## 30-second protocol
+
+The UI reads agent state from:
+
+```text
+~/.agentisland/state/<agent_id>.json
 ```
 
-For two-way prompts, include a stable `--request` id and one or more actions.
-The UI writes the selected action to `~/.agentisland/replies/<agent_id>/`,
-and the agent consumes it with `wait`:
+Your agent can update state through the CLI:
 
 ```bash
 agentisland report \
-  --id my-agent-1 \
+  --id build-bot \
   --kind custom \
-  --name "Refactor auth" \
+  --name "Build Bot" \
+  --status running \
+  --phase running \
+  --task "Running integration tests..." \
+  --progress 0.4
+```
+
+For approvals or choices:
+
+```bash
+agentisland report \
+  --id build-bot \
+  --kind custom \
+  --name "Build Bot" \
   --status waiting_input \
   --attention \
-  --request approve-write-001 \
-  --phase waiting \
-  --task "Approve writing auth/middleware.ts?" \
+  --request deploy-001 \
+  --task "Deploy to staging?" \
   --action allow:Allow:approve \
   --action deny:Deny:deny
-
-agentisland wait --id my-agent-1 --request approve-write-001 --timeout 600
 ```
 
-Agents can also present arbitrary choices:
+Then wait for the reply:
 
 ```bash
-agentisland report --id planner --status waiting_input --attention \
-  --request strategy-001 \
-  --task "Choose a strategy" \
-  --action fast:"Fast path":option \
-  --action careful:"Careful path":option
+agentisland wait --id build-bot --request deploy-001 --timeout 600
 ```
 
-Or in Python:
+Replies are written to:
 
-```python
-import json, pathlib, time, datetime
-p = pathlib.Path.home() / ".agentisland/state/my-agent.json"
-p.parent.mkdir(parents=True, exist_ok=True)
-now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-p.write_text(json.dumps({
-  "schema": 1, "agent_id": "my-agent", "kind": "python",
-  "display_name": "Train model", "status": "running",
-  "phase_title": "running", "task": "Epoch 3/10",
-  "progress": 0.3, "started_at": now, "updated_at": now,
-  "needs_attention": False, "tail": [], "actions": [], "ttl_seconds": 60,
-}))
+```text
+~/.agentisland/replies/<agent_id>/
 ```
 
-## State file schema (v1)
+## Architecture
 
-```json
-{
-  "schema": 1,
-  "agent_id": "claude-7f3a",
-  "kind": "claude-code",
-  "display_name": "Refactor auth module",
-  "status": "running",
-  "request_id": "approve-write-001",
-  "phase_title": "running",
-  "task": "Editing src/auth/session.ts",
-  "progress": 0.42,
-  "pid": 48211,
-  "cwd": "/Users/me/proj/api",
-  "started_at": "2026-05-23T10:12:03Z",
-  "updated_at": "2026-05-23T10:14:51Z",
-  "needs_attention": false,
-  "tail": ["✓ Edit", "✓ Bash"],
-  "actions": [{"id": "allow", "label": "Allow", "role": "approve"}],
-  "ttl_seconds": 60
-}
+```text
+┌────────────────────────────────────────────────────┐
+│ AgentIsland.app                                    │
+│ SwiftUI notch UI + local OTLP receiver + watchers  │
+└──────────────────────────▲─────────────────────────┘
+                           │
+               reads ~/.agentisland/state/*.json
+                           │
+   ┌───────────────────────┼───────────────────────┐
+   │                       │                       │
+Claude Code            Codex                 Custom scripts
+hooks                  OTLP / transcript     CLI or SDK
 ```
 
-- `status`: `thinking` | `running` | `waiting_input` | `idle` | `done` | `error`
-- `request_id`: stable id for correlating a UI reply to a prompt/approval request.
-- `phase_title`: short visible phase label, e.g. `thinking`, `running`, `waiting`, `done`.
-- `progress`: optional number from `0` to `1`; omit it when progress is unknown.
-- `needs_attention`: lights the notch yellow + escalates the row. Use it for "user input required".
-- `ttl_seconds`: if `updated_at` is older than this, the dot grays out as stale.
-- `actions`: optional UI actions. `role` can be `approve`, `deny`, `option`, `open`, or `dismiss`.
+There is no cloud account, no telemetry backend, and no daemon dependency. The state directory is the system of record.
+
+## Build from source
+
+Requirements:
+
+- macOS 13+
+- Xcode Command Line Tools or Xcode with Swift 5.9+
+
+```bash
+git clone https://github.com/HarryB25/agentisland.git
+cd agentisland
+swift build -c release
+swift run AgentIslandApp
+```
+
+## Release workflow
+
+Local packaging:
+
+```bash
+./scripts/release/build-release-assets.sh v0.1.0
+```
+
+Draft GitHub release:
+
+```bash
+./scripts/release/publish-release.sh v0.1.0
+```
+
+Published GitHub release:
+
+```bash
+./scripts/release/publish-release.sh v0.1.0 --publish
+```
+
+Automated GitHub release:
+
+- push a tag like `v0.1.0`, or
+- run the `Release` workflow manually in GitHub Actions
+
+That workflow builds the app on macOS, packages all release assets, and uploads them to GitHub Releases.
+
+## Homebrew
+
+This repo includes a tap-ready cask at [`Casks/agentisland.rb`](./Casks/agentisland.rb).
+
+It installs the latest desktop ZIP from GitHub Releases, which keeps the tap lightweight and avoids hand-updating checksums on every release.
 
 ## Roadmap
 
-- [x] P0 — SwiftUI notch UI + FS watcher + CLI
-- [x] P1 — Claude Code hooks adapter
-- [x] P2 — Codex via OTLP/HTTP receiver (port 4318, JSON protocol)
-- [ ] P3 — In-notch approval / question answer / plan feedback (two-way protocol)
-- [ ] P4 — Click-to-focus terminal (OSC 7 + AppleScript for Ghostty / iTerm2 / Terminal)
-- [ ] P5 — Python / TS SDKs
-- [ ] P6 — Quiet completion sound (optional, off by default)
-
-**Explicitly not on the roadmap:** task history view, cloud sync / accounts, agent config management, any UI outside the notch.
-
-## Contributing
-
-Issues and PRs welcome. The protocol (`AgentState` in `Sources/AgentIslandCore/AgentState.swift`) is the load-bearing piece — discuss schema changes in an issue first.
-
-## Support
-
-If this saves you from losing track of a half-finished agent task, consider buying me a coffee: <https://buymeacoffee.com/> *(link TBD)*. No paid features, no telemetry, ever.
+- [x] Native notch UI
+- [x] Claude Code adapter
+- [x] Codex OTLP + transcript integration
+- [x] Two-way approval / option reply protocol
+- [x] Release packaging for app and CLI
+- [ ] SDKs for Python and TypeScript
+- [ ] More adapters beyond Claude Code and Codex
+- [ ] Optional click-to-focus deep links across terminals and editors
 
 ## License
 

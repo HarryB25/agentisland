@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v0.1.0)"
+        required: true
+      draft:
+        description: "Create a draft release"
+        required: true
+        default: "true"
+
+jobs:
+  build-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+          - runner: macos-13
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release assets
+        run: ./scripts/release/build-release-assets.sh "${{ steps.meta.outputs.tag }}"
+
+      - name: Upload packaged assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.runner }}
+          path: dist/${{ steps.meta.outputs.tag }}/*
+
+  publish-release:
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Resolve release tag
+        id: meta
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "draft=${{ inputs.draft }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download packaged assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: ${{ steps.meta.outputs.draft == 'true' }}
+          files: release-assets/*
+          body: |
+            ## AgentIsland ${{ steps.meta.outputs.tag }}
+
+            Assets in this release:
+
+            - `agentisland-macos-arm64.dmg`
+            - `agentisland-macos-arm64.zip`
+            - `agentisland-cli-macos-arm64.tar.gz`
+            - `agentisland-macos-x86_64.dmg`
+            - `agentisland-macos-x86_64.zip`
+            - `agentisland-cli-macos-x86_64.tar.gz`
+            - `install.sh`
+            - `checksums-arm64.txt`
+            - `checksums-x86_64.txt`
+
+            Install options:
+
+            - Desktop app: download the DMG or use Homebrew Cask
+            - CLI: `curl -fsSL https://github.com/HarryB25/agentisland/releases/latest/download/install.sh | bash`
+            - CLI + app: `curl -fsSL https://github.com/HarryB25/agentisland/releases/latest/download/install.sh | bash -s -- --app`
