@@ -26,7 +26,9 @@ final class AgentStore: ObservableObject {
         reload(initial: true)
         startWatching()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.reload() }
+            Task { @MainActor [weak self] in
+                self?.reload()
+            }
         }
     }
 

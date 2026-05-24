@@ -214,7 +214,9 @@ final class NotchHostController {
             .store(in: &cancellables)
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.recomputeState() }
+            Task { @MainActor [weak self] in
+                self?.recomputeState()
+            }
         }
 
         store.$agents
@@ -233,7 +235,9 @@ final class NotchHostController {
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.refreshGeometry() }
+            Task { @MainActor [weak self] in
+                self?.refreshGeometry()
+            }
         }
     }
 
@@ -361,13 +365,17 @@ final class NotchHostController {
 
     private func setupMouseMonitoring() {
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
-            Task { @MainActor in self?.handleMouseMoved() }
+            Task { @MainActor [weak self] in
+                self?.handleMouseMoved()
+            }
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .scrollWheel]) { [weak self] event in
             guard let self else { return event }
             switch event.type {
             case .mouseMoved:
-                Task { @MainActor in self.handleMouseMoved() }
+                Task { @MainActor [weak self] in
+                    self?.handleMouseMoved()
+                }
                 return event
             case .scrollWheel:
                 return self.shouldSuppressScroll(event) ? nil : event
@@ -399,7 +407,7 @@ final class NotchHostController {
                     withTimeInterval: IslandPanelLimits.hoverExitDelay,
                     repeats: false
                 ) { [weak self] _ in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
                         guard let self else { return }
                         self.hoverExitTimer = nil
                         if !self.currentHoverZone().contains(NSEvent.mouseLocation) {
