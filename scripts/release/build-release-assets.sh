@@ -11,38 +11,54 @@ if [[ -z "$TAG_NAME" ]]; then
 fi
 
 VERSION="${TAG_NAME#v}"
-ARCH="$(uname -m)"
-case "$ARCH" in
-  arm64|x86_64) ;;
-  *)
-    echo "error: unsupported macOS architecture '$ARCH'" >&2
-    exit 1
-    ;;
-esac
+HOST_ARCH="$(uname -m)"
+ARCHES_INPUT="${AGENTISLAND_ARCHES:-$HOST_ARCH}"
+read -r -a ARCHES <<< "$ARCHES_INPUT"
+
+validate_arch() {
+  case "$1" in
+    arm64|x86_64) ;;
+    *)
+      echo "error: unsupported macOS architecture '$1'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+for arch in "${ARCHES[@]}"; do
+  validate_arch "$arch"
+done
 
 OUT_DIR="${OUT_DIR:-$ROOT/dist/$TAG_NAME}"
 WORK_DIR="$OUT_DIR/.work"
 APP_NAME="AgentIsland"
-APP_BUNDLE="$WORK_DIR/$APP_NAME.app"
-BUILD_DIR="$ROOT/.build/release"
-APP_EXECUTABLE="$BUILD_DIR/AgentIslandApp"
-CLI_EXECUTABLE="$BUILD_DIR/agentisland"
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR" "$WORK_DIR"
 
-echo "==> Building release binaries"
-swift build -c release --package-path "$ROOT"
+package_arch() {
+  local arch="$1"
+  local build_dir="$ROOT/.build/${arch}-apple-macosx/release"
+  local app_executable="$build_dir/AgentIslandApp"
+  local cli_executable="$build_dir/agentisland"
+  local arch_work="$WORK_DIR/$arch"
+  local app_bundle="$arch_work/$APP_NAME.app"
+  local app_zip="$OUT_DIR/agentisland-macos-$arch.zip"
+  local dmg_path="$OUT_DIR/agentisland-macos-$arch.dmg"
+  local cli_tarball="$OUT_DIR/agentisland-cli-macos-$arch.tar.gz"
 
-if [[ ! -x "$APP_EXECUTABLE" || ! -x "$CLI_EXECUTABLE" ]]; then
-  echo "error: expected release products not found under $BUILD_DIR" >&2
-  exit 1
-fi
+  echo "==> Building release binaries for $arch"
+  swift build -c release --package-path "$ROOT" --arch "$arch"
 
-echo "==> Creating app bundle"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
-cp "$APP_EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/AgentIslandApp"
-cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
+  if [[ ! -x "$app_executable" || ! -x "$cli_executable" ]]; then
+    echo "error: expected release products not found under $build_dir" >&2
+    exit 1
+  fi
+
+  echo "==> Creating app bundle for $arch"
+  mkdir -p "$app_bundle/Contents/MacOS" "$app_bundle/Contents/Resources"
+  cp "$app_executable" "$app_bundle/Contents/MacOS/AgentIslandApp"
+  cat > "$app_bundle/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -73,50 +89,52 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null 2>&1 || true
-fi
-if command -v xattr >/dev/null 2>&1; then
-  xattr -cr "$APP_BUNDLE" >/dev/null 2>&1 || true
-fi
+  if command -v codesign >/dev/null 2>&1; then
+    codesign --force --deep --sign - "$app_bundle" >/dev/null 2>&1 || true
+  fi
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "$app_bundle" >/dev/null 2>&1 || true
+  fi
 
-echo "==> Packaging desktop artifacts"
-APP_ZIP="$OUT_DIR/agentisland-macos-$ARCH.zip"
-(
-  cd "$WORK_DIR"
-  zip -qry -X "$APP_ZIP" "$APP_NAME.app"
-)
+  echo "==> Packaging desktop artifacts for $arch"
+  (
+    cd "$arch_work"
+    zip -qry -X "$app_zip" "$APP_NAME.app"
+  )
 
-DMG_STAGE="$WORK_DIR/dmg"
-mkdir -p "$DMG_STAGE"
-COPYFILE_DISABLE=1 ditto "$APP_BUNDLE" "$DMG_STAGE/$APP_NAME.app"
-ln -s /Applications "$DMG_STAGE/Applications"
-DMG_PATH="$OUT_DIR/agentisland-macos-$ARCH.dmg"
-hdiutil create -volname "AgentIsland" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH" >/dev/null
+  local dmg_stage="$arch_work/dmg"
+  mkdir -p "$dmg_stage"
+  COPYFILE_DISABLE=1 ditto "$app_bundle" "$dmg_stage/$APP_NAME.app"
+  ln -s /Applications "$dmg_stage/Applications"
+  hdiutil create -volname "AgentIsland" -srcfolder "$dmg_stage" -ov -format UDZO "$dmg_path" >/dev/null
 
-echo "==> Packaging CLI artifact"
-CLI_STAGE="$WORK_DIR/agentisland-cli"
-mkdir -p "$CLI_STAGE/bin" "$CLI_STAGE/share/agentisland/scripts"
-cp "$CLI_EXECUTABLE" "$CLI_STAGE/bin/agentisland"
-cp "$ROOT/scripts/install-codex.sh" "$CLI_STAGE/share/agentisland/scripts/install-codex.sh"
-cp "$ROOT/scripts/install-claude-hooks.sh" "$CLI_STAGE/share/agentisland/scripts/install-claude-hooks.sh"
-cp "$ROOT/LICENSE" "$CLI_STAGE/LICENSE"
-CLI_TARBALL="$OUT_DIR/agentisland-cli-macos-$ARCH.tar.gz"
-tar -C "$WORK_DIR" -czf "$CLI_TARBALL" agentisland-cli
+  echo "==> Packaging CLI artifact for $arch"
+  local cli_stage="$arch_work/agentisland-cli"
+  mkdir -p "$cli_stage/bin" "$cli_stage/share/agentisland/scripts"
+  cp "$cli_executable" "$cli_stage/bin/agentisland"
+  cp "$ROOT/scripts/install-codex.sh" "$cli_stage/share/agentisland/scripts/install-codex.sh"
+  cp "$ROOT/scripts/install-claude-hooks.sh" "$cli_stage/share/agentisland/scripts/install-claude-hooks.sh"
+  cp "$ROOT/LICENSE" "$cli_stage/LICENSE"
+  tar -C "$arch_work" -czf "$cli_tarball" agentisland-cli
 
-echo "==> Writing install helper"
+  echo "==> Writing checksums for $arch"
+  (
+    cd "$OUT_DIR"
+    shasum -a 256 \
+      "agentisland-macos-$arch.zip" \
+      "agentisland-macos-$arch.dmg" \
+      "agentisland-cli-macos-$arch.tar.gz" \
+      "install.sh" > "checksums-$arch.txt"
+  )
+}
+
+echo "==> Writing shared install helper"
 cp "$ROOT/scripts/release/install.sh" "$OUT_DIR/install.sh"
 chmod +x "$OUT_DIR/install.sh"
 
-echo "==> Writing checksums"
-(
-  cd "$OUT_DIR"
-  shasum -a 256 \
-    "agentisland-macos-$ARCH.zip" \
-    "agentisland-macos-$ARCH.dmg" \
-    "agentisland-cli-macos-$ARCH.tar.gz" \
-    "install.sh" > "checksums-$ARCH.txt"
-)
+for arch in "${ARCHES[@]}"; do
+  package_arch "$arch"
+done
 
 echo ""
 echo "Release assets written to:"

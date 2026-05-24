@@ -16,13 +16,7 @@ on:
 
 jobs:
   build-release:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-          - runner: macos-13
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-14
 
     steps:
       - name: Check out source
@@ -40,12 +34,14 @@ jobs:
           fi
 
       - name: Build release assets
+        env:
+          AGENTISLAND_ARCHES: arm64 x86_64
         run: ./scripts/release/build-release-assets.sh "${{ steps.meta.outputs.tag }}"
 
       - name: Upload packaged assets
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.runner }}
+          name: release-assets
           path: dist/${{ steps.meta.outputs.tag }}/*
 
   publish-release:
@@ -69,8 +65,8 @@ jobs:
       - name: Download packaged assets
         uses: actions/download-artifact@v4
         with:
+          name: release-assets
           path: release-assets
-          merge-multiple: true
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
