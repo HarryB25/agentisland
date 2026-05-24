@@ -114,6 +114,36 @@ agentisland report --id my-agent-1 --status waiting_input --attention \
 agentisland report --id my-agent-1 --status done --task "12 PDFs saved"
 ```
 
+For two-way prompts, include a stable `--request` id and one or more actions.
+The UI writes the selected action to `~/.agentisland/replies/<agent_id>/`,
+and the agent consumes it with `wait`:
+
+```bash
+agentisland report \
+  --id my-agent-1 \
+  --kind custom \
+  --name "Refactor auth" \
+  --status waiting_input \
+  --attention \
+  --request approve-write-001 \
+  --phase waiting \
+  --task "Approve writing auth/middleware.ts?" \
+  --action allow:Allow:approve \
+  --action deny:Deny:deny
+
+agentisland wait --id my-agent-1 --request approve-write-001 --timeout 600
+```
+
+Agents can also present arbitrary choices:
+
+```bash
+agentisland report --id planner --status waiting_input --attention \
+  --request strategy-001 \
+  --task "Choose a strategy" \
+  --action fast:"Fast path":option \
+  --action careful:"Careful path":option
+```
+
 Or in Python:
 
 ```python
@@ -124,8 +154,9 @@ now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 p.write_text(json.dumps({
   "schema": 1, "agent_id": "my-agent", "kind": "python",
   "display_name": "Train model", "status": "running",
-  "task": "Epoch 3/10", "started_at": now, "updated_at": now,
-  "needs_attention": False, "tail": [], "ttl_seconds": 60,
+  "phase_title": "running", "task": "Epoch 3/10",
+  "progress": 0.3, "started_at": now, "updated_at": now,
+  "needs_attention": False, "tail": [], "actions": [], "ttl_seconds": 60,
 }))
 ```
 
@@ -138,20 +169,28 @@ p.write_text(json.dumps({
   "kind": "claude-code",
   "display_name": "Refactor auth module",
   "status": "running",
+  "request_id": "approve-write-001",
+  "phase_title": "running",
   "task": "Editing src/auth/session.ts",
+  "progress": 0.42,
   "pid": 48211,
   "cwd": "/Users/me/proj/api",
   "started_at": "2026-05-23T10:12:03Z",
   "updated_at": "2026-05-23T10:14:51Z",
   "needs_attention": false,
   "tail": ["✓ Edit", "✓ Bash"],
+  "actions": [{"id": "allow", "label": "Allow", "role": "approve"}],
   "ttl_seconds": 60
 }
 ```
 
 - `status`: `thinking` | `running` | `waiting_input` | `idle` | `done` | `error`
+- `request_id`: stable id for correlating a UI reply to a prompt/approval request.
+- `phase_title`: short visible phase label, e.g. `thinking`, `running`, `waiting`, `done`.
+- `progress`: optional number from `0` to `1`; omit it when progress is unknown.
 - `needs_attention`: lights the notch yellow + escalates the row. Use it for "user input required".
 - `ttl_seconds`: if `updated_at` is older than this, the dot grays out as stale.
+- `actions`: optional UI actions. `role` can be `approve`, `deny`, `option`, `open`, or `dismiss`.
 
 ## Roadmap
 

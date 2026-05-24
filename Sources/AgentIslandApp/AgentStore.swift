@@ -7,20 +7,19 @@ import AgentIslandCore
 final class AgentStore: ObservableObject {
     @Published private(set) var agents: [AgentState] = []
 
-    /// Increments whenever an agent newly enters the "needs attention" state.
-    /// UI subscribes to drive an auto-peek attention attractor.
-    @Published private(set) var attentionTick: Int = 0
+    /// Increments whenever an agent newly enters a state that should briefly
+    /// surface itself without requiring hover: attention, error, or done.
+    @Published private(set) var autoPeekTick: Int = 0
 
-    /// Increments whenever any agent transitions to a different status.
-    /// Used for short status-change peeks.
-    @Published private(set) var statusChangeTick: Int = 0
-
-    private var dirSource: DispatchSourceFileSystemObject?
-    private var dirFD: Int32 = -1
+    private var stateDirSource: DispatchSourceFileSystemObject?
+    private var stateFD: Int32 = -1
     private var pollTimer: Timer?
 
-    private var previousAttentionIDs: Set<String> = []
-    private var previousStatuses: [String: AgentState.Status] = [:]
+    private var previousAutoPeekKeys: Set<String> = []
+
+    private enum DisplayPolicy {
+        static let completedVisibleDuration: TimeInterval = 45
+    }
 
     init() {
         try? AgentStatePaths.ensureDirs()
@@ -32,8 +31,8 @@ final class AgentStore: ObservableObject {
     }
 
     deinit {
-        dirSource?.cancel()
-        if dirFD >= 0 { close(dirFD) }
+        stateDirSource?.cancel()
+        if stateFD >= 0 { close(stateFD) }
         pollTimer?.invalidate()
     }
 
@@ -53,11 +52,14 @@ final class AgentStore: ObservableObject {
         }
         loaded.sort { $0.started_at < $1.started_at }
 
+        let visible = Self.displayableAgents(from: loaded)
+        let shouldAutoPeek: Bool
+
         if !initial {
-            detectTransitions(newAgents: loaded)
+            shouldAutoPeek = updateTransitionSnapshot(newAgents: visible)
         } else {
-            previousAttentionIDs = Set(loaded.filter { $0.needs_attention }.map(\.agent_id))
-            previousStatuses = Dictionary(uniqueKeysWithValues: loaded.map { ($0.agent_id, $0.status) })
+            previousAutoPeekKeys = Set(visible.flatMap(Self.autoPeekKeys(for:)))
+            shouldAutoPeek = false
         }
 
         if loaded != self.agents {
@@ -66,52 +68,91 @@ final class AgentStore: ObservableObject {
             // refresh stale flag even when nothing else changed
             self.objectWillChange.send()
         }
+
+        if shouldAutoPeek {
+            autoPeekTick &+= 1
+        }
     }
 
-    private func detectTransitions(newAgents: [AgentState]) {
-        // Newly-attention-needing agents trigger the attractor.
-        let currentAttention = Set(newAgents.filter { $0.needs_attention }.map(\.agent_id))
-        let newlyAttention = currentAttention.subtracting(previousAttentionIDs)
-        if !newlyAttention.isEmpty {
-            attentionTick &+= 1
-        }
-        previousAttentionIDs = currentAttention
+    private func updateTransitionSnapshot(newAgents: [AgentState]) -> Bool {
+        let currentAutoPeek = Set(newAgents.flatMap(Self.autoPeekKeys(for:)))
+        let newlyAutoPeek = currentAutoPeek.subtracting(previousAutoPeekKeys)
+        previousAutoPeekKeys = currentAutoPeek
+        return !newlyAutoPeek.isEmpty
+    }
 
-        // General status change → brief peek.
-        let newStatuses = Dictionary(uniqueKeysWithValues: newAgents.map { ($0.agent_id, $0.status) })
-        var anyChanged = newlyAttention.isEmpty == false
-        for (id, status) in newStatuses {
-            if previousStatuses[id] != status { anyChanged = true; break }
+    private static func autoPeekKeys(for agent: AgentState) -> [String] {
+        var keys: [String] = []
+        if agent.needs_attention {
+            keys.append("\(agent.agent_id):attention")
         }
-        // New agents appearing also counts.
-        if !anyChanged {
-            let oldIDs = Set(previousStatuses.keys)
-            let newIDs = Set(newStatuses.keys)
-            if !newIDs.subtracting(oldIDs).isEmpty { anyChanged = true }
+        if agent.status == .waiting_input {
+            keys.append("\(agent.agent_id):waiting_input")
         }
-        if anyChanged { statusChangeTick &+= 1 }
-        previousStatuses = newStatuses
+        if agent.status == .error {
+            keys.append("\(agent.agent_id):error")
+        }
+        if agent.status == .done {
+            keys.append("\(agent.agent_id):done")
+        }
+        return keys
+    }
+
+    var visibleAgents: [AgentState] {
+        Self.displayableAgents(from: agents)
+    }
+
+    private static func displayableAgents(from agents: [AgentState], now: Date = Date()) -> [AgentState] {
+        agents.filter { isDisplayable($0, now: now) }
+    }
+
+    private static func isDisplayable(_ agent: AgentState, now: Date) -> Bool {
+        let age = now.timeIntervalSince(agent.updated_at)
+        guard age <= Double(agent.ttl_seconds) else { return false }
+        guard agent.status != .idle else { return false }
+
+        // Completed transcript turns are useful as a short confirmation, but
+        // should not look like live work for minutes after a session ended.
+        if agent.status == .done, age > DisplayPolicy.completedVisibleDuration {
+            return false
+        }
+
+        return true
     }
 
     private func startWatching() {
-        let dir = AgentStatePaths.stateDir
-        let fd = open(dir.path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        self.dirFD = fd
-        let src = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend, .rename, .delete],
-            queue: .main
-        )
-        src.setEventHandler { [weak self] in
-            self?.reload()
+        let stateDir = AgentStatePaths.stateDir
+        let sfd = open(stateDir.path, O_EVTONLY)
+        if sfd >= 0 {
+            self.stateFD = sfd
+            let src = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: sfd,
+                eventMask: [.write, .extend, .rename, .delete],
+                queue: .main
+            )
+            src.setEventHandler { [weak self] in self?.reload() }
+            src.resume()
+            self.stateDirSource = src
         }
-        src.resume()
-        self.dirSource = src
     }
 
     /// Single agent that "owns" the attention — the most recently updated one needing input.
     var attentionAgent: AgentState? {
-        agents.filter { $0.needs_attention }.max { $0.updated_at < $1.updated_at }
+        visibleAgents.filter { $0.needs_attention }.max { $0.updated_at < $1.updated_at }
+    }
+
+    /// The agent that should drive the compact sentinel dot color.
+    /// Priority: errors → needs-you → thinking/running → done. Nil if none qualifies
+    /// (all idle or stale), which keeps the notch invisible in compact.
+    var sentinelAgent: AgentState? {
+        let active = visibleAgents
+        let priority: (AgentState) -> Int = { a in
+            if a.status == .error { return 0 }
+            if a.needs_attention || a.status == .waiting_input { return 1 }
+            if a.status == .thinking || a.status == .running { return 2 }
+            if a.status == .done { return 3 }
+            return 4
+        }
+        return active.min { priority($0) < priority($1) }
     }
 }

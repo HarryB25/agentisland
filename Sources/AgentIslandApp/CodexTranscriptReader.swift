@@ -1,5 +1,23 @@
 import Foundation
+import AppKit
 import AgentIslandCore
+
+/// Bundle IDs we treat as "the Codex app you want to focus when you click
+/// a codex agent in the notch". First hit wins.
+private let codexBundleIDs: [String] = [
+    "com.openai.codex",
+    "com.openai.chatgpt",  // ChatGPT Desktop ships Codex inside it
+]
+
+private func codexAppPID() -> pid_t? {
+    for bid in codexBundleIDs {
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bid).first {
+            return app.processIdentifier
+        }
+    }
+    return nil
+}
+
 
 /// Tails Codex session transcripts at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`.
 ///
@@ -29,10 +47,13 @@ final class CodexTranscriptReader {
 
     private var timer: Timer?
     private let queue = DispatchQueue(label: "agentisland.codex", qos: .utility)
+    private let initialCatchupWindow: TimeInterval = 90
 
     func start() {
         loadThreadNames()
-        // First pass: catch up on anything written in the last 6h, then start polling.
+        // First pass: catch up only on files that were touched very recently,
+        // then tail new bytes. Replaying hours of archived transcripts on app
+        // launch makes old Codex conversations look like live island tasks.
         // We poll because FSEvents on a deep tree with nightly-rotated dirs adds
         // complexity without enough benefit for files that write < 50 events/sec.
         queue.async { [weak self] in
@@ -65,10 +86,12 @@ final class CodexTranscriptReader {
                   let size = values.fileSize else { continue }
             let age = now.timeIntervalSince(mtime)
 
-            // On the very first pass, only catch up on the past 6 hours.
-            // Old sessions are written-to-disk archives — replaying them would
-            // spam the notch on startup.
-            if initialCatchup && offsets[url.path] == nil && age > 6 * 3600 {
+            // On the very first pass, only replay the active tail. Older
+            // session files are archives; preload their metadata so future
+            // appended records can still be interpreted, but do not emit UI
+            // state for their historical contents.
+            if initialCatchup && offsets[url.path] == nil && age > initialCatchupWindow {
+                preloadSessionMeta(at: url)
                 offsets[url.path] = UInt64(size)  // mark as fully consumed
                 continue
             }
@@ -111,6 +134,23 @@ final class CodexTranscriptReader {
         _ = incompleteTail
     }
 
+    private func preloadSessionMeta(at url: URL) {
+        guard meta[url.path] == nil,
+              let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+        let data = handle.readData(ofLength: 256 * 1024)
+        guard let text = String(data: data, encoding: .utf8) else { return }
+
+        for line in text.split(separator: "\n").prefix(80) {
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let recordType = obj["type"] as? String,
+                  recordType == "session_meta",
+                  let payload = obj["payload"] as? [String: Any] else { continue }
+            meta[url.path] = sessionMeta(from: payload)
+            return
+        }
+    }
+
     /// Quick refresh of session_id → thread_name from session_index.jsonl.
     private func loadThreadNames() {
         guard let data = try? Data(contentsOf: indexFile),
@@ -134,10 +174,9 @@ final class CodexTranscriptReader {
 
         // ----- session_meta: capture metadata for this file -----
         if recordType == "session_meta" {
-            let sid = (payload["id"] as? String) ?? UUID().uuidString
-            let cwd = payload["cwd"] as? String
-            let originator = payload["originator"] as? String ?? "Codex"
-            meta[sessionFilePath] = CodexSessionMeta(sessionId: sid, cwd: cwd, originator: originator)
+            let sessionMeta = sessionMeta(from: payload)
+            meta[sessionFilePath] = sessionMeta
+            guard !sessionMeta.isInternal else { return }
             // Create the initial state record so the agent shows up immediately.
             applyInitialState(for: sessionFilePath)
             return
@@ -148,6 +187,7 @@ final class CodexTranscriptReader {
             // have context for the file. Should not happen in practice.
             return
         }
+        guard !m.isInternal else { return }
 
         // ----- event_msg.* -----
         if recordType == "event_msg" {
@@ -155,28 +195,38 @@ final class CodexTranscriptReader {
             case "task_started":
                 update(for: m) { s in
                     s.status = .running
+                    s.phase_title = "running"
                     s.task = "Working on a turn"
+                    s.progress = nil
+                    s.actions = nil
                     s.needs_attention = false
                 }
             case "user_message":
                 let msg = (payload["message"] as? String) ?? ""
                 update(for: m) { s in
                     s.status = .running
+                    s.phase_title = "running"
                     s.task = truncate(msg, 80)
+                    s.progress = nil
+                    s.actions = nil
                     s.needs_attention = false
                 }
             case "agent_message":
                 let msg = (payload["message"] as? String) ?? ""
                 update(for: m) { s in
-                    s.task = truncate(msg, 80)
+                    s.task = displayTask(msg, fallback: s.task ?? "Replied")
                     s.tail = (s.tail + ["✓ replied"]).suffix(3).map { $0 }
                 }
             case "task_complete":
                 let last = (payload["last_agent_message"] as? String) ?? ""
                 update(for: m) { s in
-                    s.status = .idle
+                    s.status = .done
+                    s.phase_title = "done"
                     s.needs_attention = false
-                    s.task = last.isEmpty ? "Idle" : truncate(last, 80)
+                    s.task = displayTask(last, fallback: "Completed")
+                    s.progress = 1
+                    s.actions = nil
+                    s.ttl_seconds = 45
                 }
             case "token_count":
                 // Just a heartbeat — refresh updated_at, nothing else.
@@ -188,7 +238,10 @@ final class CodexTranscriptReader {
             case "error":
                 update(for: m) { s in
                     s.status = .error
-                    s.task = truncate((payload["message"] as? String) ?? "error", 80)
+                    s.phase_title = "error"
+                    s.task = displayTask((payload["message"] as? String) ?? "", fallback: "Error")
+                    s.progress = nil
+                    s.actions = nil
                 }
             default:
                 update(for: m) { _ in }
@@ -203,14 +256,20 @@ final class CodexTranscriptReader {
                 update(for: m) { s in
                     if s.status != .waiting_input {
                         s.status = .thinking
+                        s.phase_title = "thinking"
                         s.task = "Thinking…"
+                        s.progress = nil
+                        s.actions = nil
                     }
                 }
             case "function_call":
                 let name = (payload["name"] as? String) ?? "tool"
                 update(for: m) { s in
                     s.status = .running
+                    s.phase_title = "running"
                     s.task = "Using \(name)"
+                    s.progress = nil
+                    s.actions = nil
                 }
             case "function_call_output":
                 update(for: m) { s in
@@ -235,13 +294,16 @@ final class CodexTranscriptReader {
             display_name: displayName(for: m),
             status: .idle,
             cwd: m.cwd,
-            ttl_seconds: 90
+            ttl_seconds: 180
         )
         s.kind = "codex"
         s.display_name = displayName(for: m)
         s.cwd = m.cwd
         s.updated_at = Date()
-        s.ttl_seconds = 90
+        s.ttl_seconds = 180
+        if s.focus_pid == nil, let pid = codexAppPID() {
+            s.focus_pid = Int(pid)
+        }
         try? AgentStateIO.save(s)
     }
 
@@ -250,13 +312,13 @@ final class CodexTranscriptReader {
         var s = AgentStateIO.load(id: id) ?? AgentState(
             agent_id: id, kind: "codex",
             display_name: displayName(for: m),
-            status: .idle, cwd: m.cwd, ttl_seconds: 90
+            status: .idle, cwd: m.cwd, ttl_seconds: 180
         )
         s.kind = "codex"
         s.display_name = displayName(for: m)
         s.cwd = m.cwd
         s.updated_at = Date()
-        s.ttl_seconds = 90
+        s.ttl_seconds = 180
         mutate(&s)
         try? AgentStateIO.save(s)
     }
@@ -271,8 +333,35 @@ final class CodexTranscriptReader {
         return m.originator
     }
 
+    private func sessionMeta(from payload: [String: Any]) -> CodexSessionMeta {
+        let sid = (payload["id"] as? String) ?? UUID().uuidString
+        let cwd = payload["cwd"] as? String
+        let originator = payload["originator"] as? String ?? "Codex"
+        let threadSource = payload["thread_source"] as? String
+        let source = payload["source"] as? [String: Any]
+        let isInternal = threadSource == "subagent" || source?["subagent"] != nil
+        return CodexSessionMeta(sessionId: sid, cwd: cwd, originator: originator, isInternal: isInternal)
+    }
+
     private func truncate(_ s: String, _ n: Int) -> String {
         s.count <= n ? s : String(s.prefix(n - 1)) + "…"
+    }
+
+    private func displayTask(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        if looksStructuredPayload(trimmed) {
+            if trimmed.contains("\"outcome\"") || trimmed.contains("\"user_authorization\"") {
+                return "Approval decision recorded"
+            }
+            return fallback
+        }
+        return truncate(trimmed, 80)
+    }
+
+    private func looksStructuredPayload(_ value: String) -> Bool {
+        (value.hasPrefix("{") && value.hasSuffix("}"))
+            || (value.hasPrefix("[") && value.hasSuffix("]"))
     }
 }
 
@@ -280,4 +369,5 @@ private struct CodexSessionMeta {
     let sessionId: String
     let cwd: String?
     let originator: String
+    let isInternal: Bool
 }

@@ -86,8 +86,15 @@ enum OTLPEventMapper {
         let kind = inferKind(serviceName: serviceName, scope: record.scopeName, body: record.body)
         guard !kind.isEmpty else { return }
 
-        let sessionId = record.attr("session.id", "session_id", "codex.session_id",
-                                    "claude_code.session.id", "service.instance.id") ?? "default"
+        guard let sessionId = record.attr(
+            "session.id", "session_id", "codex.session_id",
+            "claude_code.session.id", "service.instance.id"
+        ), !sessionId.isEmpty else {
+            if AgentIslandLog.enabled {
+                FileHandle.standardError.write(Data("[OTLP] ignored \(kind) record without session id\n".utf8))
+            }
+            return
+        }
         let id = "\(kind)-\(String(sessionId.prefix(8)))"
         let cwd = record.attr("cwd", "user.cwd", "codex.cwd", "claude_code.cwd")
         let existing = AgentStateIO.load(id: id)
@@ -99,7 +106,7 @@ enum OTLPEventMapper {
             cwd: cwd
         )
         state.updated_at = Date()
-        state.ttl_seconds = 600
+        state.ttl_seconds = 180
         if let c = cwd { state.cwd = c }
 
         if AgentIslandLog.enabled {
@@ -142,7 +149,10 @@ enum OTLPEventMapper {
             let tool = record.attr("tool.name", "function.name", "codex.tool",
                                    "claude_code.tool_name") ?? "tool"
             state.status = .running
+            state.phase_title = "running"
             state.task = "Using \(tool)"
+            state.progress = nil
+            state.actions = nil
             state.tail = (state.tail + ["→ \(tool)"]).suffix(3).map { $0 }
             return
         }
@@ -151,9 +161,16 @@ enum OTLPEventMapper {
         if event.contains("approval") || event.contains("permission")
             || body.contains("awaiting approval") || body.contains("permission request") {
             state.status = .waiting_input
+            state.phase_title = "waiting"
             state.needs_attention = true
             let what = record.attr("tool.name", "command", "approval.target") ?? "input"
             state.task = "Approve \(what)?"
+            state.progress = nil
+            state.actions = [
+                AgentState.Action(id: "allow", label: "Allow", role: .approve),
+                AgentState.Action(id: "deny", label: "Deny", role: .deny),
+            ]
+            state.ttl_seconds = 3600
             return
         }
 
@@ -163,30 +180,43 @@ enum OTLPEventMapper {
             let prompt = record.attr("user.prompt", "prompt", "user.message")
                 ?? truncate(record.body, 80)
             state.status = .running
+            state.phase_title = "running"
             state.needs_attention = false
             state.task = truncate(prompt, 80)
+            state.progress = nil
+            state.actions = nil
             return
         }
 
         // ---- Assistant response / turn end (idle but session still open) ----
         if event.contains("assistant_message") || event.contains("response_complete")
             || event.contains("turn_end") || event.contains("stop") {
-            state.status = .idle
+            state.status = .done
+            state.phase_title = "done"
             state.needs_attention = false
-            state.task = "Idle"
+            state.task = displayTask(state.task, fallback: "Completed")
+            state.progress = 1
+            state.actions = nil
+            state.ttl_seconds = 45
             return
         }
 
         // ---- Session lifecycle ----
         if event.contains("session_start") || body.contains("session started") {
             state.status = .idle
+            state.phase_title = nil
             state.task = "Session started"
+            state.progress = nil
+            state.actions = nil
             return
         }
         if event.contains("session_end") || body.contains("session ended") {
             state.status = .done
+            state.phase_title = "done"
             state.needs_attention = false
             state.task = "Session ended"
+            state.progress = 1
+            state.actions = nil
             state.ttl_seconds = 30
             return
         }
@@ -196,15 +226,22 @@ enum OTLPEventMapper {
             || event.contains("model_call")
             || body.contains("calling model") || body.contains("api.request") {
             state.status = .thinking
+            state.phase_title = "thinking"
             let model = record.attr("model", "model.name", "ai.model") ?? "model"
             state.task = "Thinking with \(model)"
+            state.progress = nil
+            state.actions = nil
             return
         }
 
         // ---- Errors ----
         if record.severity == "ERROR" || event.contains("error") {
             state.status = .error
-            state.task = truncate(record.body.isEmpty ? "error" : record.body, 80)
+            state.phase_title = "error"
+            state.task = displayTask(record.body, fallback: "Error")
+            state.progress = nil
+            state.actions = nil
+            state.ttl_seconds = 600
             return
         }
 
@@ -214,6 +251,24 @@ enum OTLPEventMapper {
 
     private static func truncate(_ s: String, _ n: Int) -> String {
         s.count <= n ? s : String(s.prefix(n - 1)) + "…"
+    }
+
+    private static func displayTask(_ value: String?, fallback: String) -> String {
+        guard let value else { return fallback }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "Idle" else { return fallback }
+        if looksStructuredPayload(trimmed) {
+            if trimmed.contains("\"outcome\"") || trimmed.contains("\"user_authorization\"") {
+                return "Approval decision recorded"
+            }
+            return fallback
+        }
+        return truncate(trimmed, 80)
+    }
+
+    private static func looksStructuredPayload(_ value: String) -> Bool {
+        (value.hasPrefix("{") && value.hasSuffix("}"))
+            || (value.hasPrefix("[") && value.hasSuffix("]"))
     }
 }
 
