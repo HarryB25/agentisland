@@ -1,88 +1,86 @@
 <svg width="1600" height="980" viewBox="0 0 1600 980" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="214" y1="84" x2="1386" y2="896" gradientUnits="userSpaceOnUse">
+    <linearGradient id="bg" x1="240" y1="80" x2="1380" y2="900" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8F4EC"/>
-      <stop offset="1" stop-color="#F5F1E7"/>
+      <stop offset="1" stop-color="#F4EFE4"/>
     </linearGradient>
-    <radialGradient id="topGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(804 108) rotate(90) scale(272 628)">
-      <stop stop-color="#D9BA56" stop-opacity="0.52"/>
-      <stop offset="0.42" stop-color="#D9BA56" stop-opacity="0.14"/>
-      <stop offset="1" stop-color="#D9BA56" stop-opacity="0"/>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(800 118) rotate(90) scale(280 620)">
+      <stop stop-color="#D7B24A" stop-opacity="0.50"/>
+      <stop offset="0.45" stop-color="#D7B24A" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#D7B24A" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="bezel" x1="800" y1="170" x2="800" y2="808" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#191919"/>
-      <stop offset="1" stop-color="#0E0E10"/>
+    <linearGradient id="bezel" x1="800" y1="176" x2="800" y2="834" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#181818"/>
+      <stop offset="1" stop-color="#0D0D10"/>
     </linearGradient>
-    <linearGradient id="shell" x1="800" y1="202" x2="800" y2="780" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#2A2928" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#1A1A1C" stop-opacity="0.16"/>
+    <linearGradient id="surface" x1="800" y1="228" x2="800" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2B2B2E" stop-opacity="0.58"/>
+      <stop offset="1" stop-color="#18181B" stop-opacity="0.24"/>
     </linearGradient>
-    <linearGradient id="waiting" x1="0" y1="0" x2="490" y2="176" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6A5823" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#2D2A1F" stop-opacity="0.18"/>
+    <linearGradient id="warmCard" x1="0" y1="0" x2="560" y2="210" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6A5927" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#302D22" stop-opacity="0.18"/>
     </linearGradient>
-    <linearGradient id="running" x1="0" y1="0" x2="490" y2="124" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#36583A" stop-opacity="0.34"/>
-      <stop offset="1" stop-color="#202724" stop-opacity="0.16"/>
+    <linearGradient id="quietCard" x1="0" y1="0" x2="560" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#274730" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#212523" stop-opacity="0.14"/>
     </linearGradient>
-    <filter id="drop" x="316" y="120" width="968" height="800" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="28" stdDeviation="42" flood-color="#110F0B" flood-opacity="0.24"/>
-      <feDropShadow dx="0" dy="20" stdDeviation="56" flood-color="#C9A83D" flood-opacity="0.18"/>
-    </filter>
-    <filter id="panelShadow" x="0" y="0" width="1600" height="980" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="34" stdDeviation="46" flood-color="#8A6B1E" flood-opacity="0.16"/>
+    <filter id="shellShadow" x="334" y="122" width="932" height="812" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="42" flood-color="#15110A" flood-opacity="0.24"/>
+      <feDropShadow dx="0" dy="18" stdDeviation="56" flood-color="#CDA93A" flood-opacity="0.18"/>
     </filter>
   </defs>
 
   <rect width="1600" height="980" fill="url(#bg)"/>
-  <rect width="1600" height="980" fill="url(#topGlow)"/>
+  <rect width="1600" height="980" fill="url(#glow)"/>
 
-  <g opacity="0.82">
-    <rect x="610" y="44" width="380" height="20" rx="10" fill="#FFFFFF" fill-opacity="0.34"/>
-    <rect x="688" y="74" width="224" height="8" rx="4" fill="#D9C48B" fill-opacity="0.46"/>
+  <g opacity="0.84">
+    <rect x="612" y="44" width="376" height="18" rx="9" fill="#FFFFFF" fill-opacity="0.30"/>
+    <rect x="696" y="74" width="208" height="8" rx="4" fill="#D8C07C" fill-opacity="0.42"/>
   </g>
 
-  <g filter="url(#drop)">
-    <path d="M650 170C650 147.909 667.909 130 690 130H910C932.091 130 950 147.909 950 170V182H1080C1128.6 182 1168 221.399 1168 270V782C1168 830.601 1128.6 870 1080 870H520C471.399 870 432 830.601 432 782V270C432 221.399 471.399 182 520 182H650V170Z" fill="url(#bezel)"/>
-    <path d="M650.75 170C650.75 148.323 668.323 130.75 690 130.75H910C931.677 130.75 949.25 148.323 949.25 170V182.75H1080C1128.19 182.75 1167.25 221.813 1167.25 270V782C1167.25 830.187 1128.19 869.25 1080 869.25H520C471.813 869.25 432.75 830.187 432.75 782V270C432.75 221.813 471.813 182.75 520 182.75H650.75V170Z" stroke="#D7B54B" stroke-opacity="0.76" stroke-width="1.5"/>
+  <g filter="url(#shellShadow)">
+    <path d="M646 176C646 152.804 664.804 134 688 134H912C935.196 134 954 152.804 954 176V188H1092C1140.6 188 1180 227.399 1180 276V788C1180 836.601 1140.6 876 1092 876H508C459.399 876 420 836.601 420 788V276C420 227.399 459.399 188 508 188H646V176Z" fill="url(#bezel)"/>
+    <path d="M646.75 176C646.75 153.218 665.218 134.75 688 134.75H912C934.782 134.75 953.25 153.218 953.25 176V188.75H1092C1140.19 188.75 1179.25 227.813 1179.25 276V788C1179.25 836.187 1140.19 875.25 1092 875.25H508C459.813 875.25 420.75 836.187 420.75 788V276C420.75 227.813 459.813 188.75 508 188.75H646.75V176Z" stroke="#D7B24A" stroke-opacity="0.72" stroke-width="1.5"/>
 
-    <rect x="470" y="220" width="660" height="612" rx="34" fill="#FFFFFF" fill-opacity="0.02"/>
-    <rect x="470" y="220" width="660" height="612" rx="34" fill="url(#shell)"/>
+    <rect x="460" y="226" width="680" height="610" rx="38" fill="url(#surface)"/>
+    <rect x="460.75" y="226.75" width="678.5" height="608.5" rx="37.25" stroke="#FFFFFF" stroke-opacity="0.05" stroke-width="1.5"/>
 
-    <g opacity="0.96">
-      <text x="800" y="330" text-anchor="middle" fill="#F6F1E7" fill-opacity="0.97" font-size="70" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">AgentIsland</text>
-      <text x="800" y="382" text-anchor="middle" fill="#F6F1E7" fill-opacity="0.54" font-size="24" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">A calm live surface for everything your agents are doing.</text>
+    <g opacity="0.97">
+      <text x="800" y="334" text-anchor="middle" fill="#F6F1E7" fill-opacity="0.98" font-size="60" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">AgentIsland</text>
+      <text x="800" y="382" text-anchor="middle" fill="#F6F1E7" fill-opacity="0.56" font-size="20" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">A calm live surface for everything your agents are doing.</text>
     </g>
 
-    <g transform="translate(555 444)">
-      <rect width="490" height="96" rx="26" fill="url(#waiting)"/>
-      <rect x="0.75" y="0.75" width="488.5" height="94.5" rx="25.25" stroke="#D9BA56" stroke-opacity="0.4" stroke-width="1.5"/>
-      <circle cx="38" cy="48" r="23" fill="#D9BA56" fill-opacity="0.18"/>
-      <path d="M30 51C30 45.4772 34.4772 41 40 41C45.5228 41 50 45.4772 50 51V51.5L52.2 54.8V56H27.8V54.8L30 51.5V51Z" fill="#FFD34D"/>
-      <circle cx="40" cy="59" r="2.8" fill="#FFD34D"/>
-      <text x="72" y="42" fill="#F6F1E7" fill-opacity="0.94" font-size="22" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Needs your input</text>
-      <text x="72" y="70" fill="#F6F1E7" fill-opacity="0.62" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Review a file write before the agent continues.</text>
+    <g transform="translate(520 446)">
+      <rect width="560" height="100" rx="28" fill="url(#warmCard)"/>
+      <rect x="0.75" y="0.75" width="558.5" height="98.5" rx="27.25" stroke="#D7B24A" stroke-opacity="0.40" stroke-width="1.5"/>
+      <circle cx="42" cy="50" r="24" fill="#D7B24A" fill-opacity="0.18"/>
+      <path d="M33 53C33 47.4772 37.4772 43 43 43C48.5228 43 53 47.4772 53 53V53.5L55 56.5V58H31V56.5L33 53.5V53Z" fill="#FFD34D"/>
+      <circle cx="43" cy="61" r="2.8" fill="#FFD34D"/>
+      <text x="78" y="44" fill="#F6F1E7" fill-opacity="0.94" font-size="22" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Needs your input</text>
+      <text x="78" y="72" fill="#F6F1E7" fill-opacity="0.62" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Review a file write before the agent continues.</text>
     </g>
 
-    <g transform="translate(555 560)">
-      <rect width="490" height="168" rx="28" fill="url(#waiting)"/>
-      <rect x="0.75" y="0.75" width="488.5" height="166.5" rx="27.25" stroke="#D9BA56" stroke-opacity="0.32" stroke-width="1.5"/>
-      <text x="34" y="42" fill="#F6F1E7" fill-opacity="0.58" font-size="15" font-weight="700" letter-spacing="0.9" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">WAITING</text>
-      <text x="34" y="92" fill="#F6F1E7" fill-opacity="0.94" font-size="40" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Write to auth/middleware.ts?</text>
-      <text x="34" y="122" fill="#F6F1E7" fill-opacity="0.48" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Claude</text>
-      <rect x="34" y="134" width="188" height="18" rx="9" fill="#FFFFFF" fill-opacity="0.06"/>
-      <rect x="254" y="132" width="96" height="24" rx="12" fill="#FFFFFF" fill-opacity="0.06"/>
-      <rect x="34" y="190" width="196" height="46" rx="14" fill="#215E37" fill-opacity="0.92"/>
-      <rect x="260" y="190" width="196" height="46" rx="14" fill="#6C2B2B" fill-opacity="0.88"/>
-      <text x="102" y="220" fill="#71F3A6" font-size="18" font-weight="800" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Allow</text>
-      <text x="338" y="220" fill="#FF8A8A" font-size="18" font-weight="800" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Deny</text>
+    <g transform="translate(520 572)">
+      <rect width="560" height="206" rx="30" fill="url(#warmCard)"/>
+      <rect x="0.75" y="0.75" width="558.5" height="204.5" rx="29.25" stroke="#D7B24A" stroke-opacity="0.32" stroke-width="1.5"/>
+
+      <text x="40" y="42" fill="#F6F1E7" fill-opacity="0.58" font-size="15" font-weight="700" letter-spacing="1.1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">WAITING</text>
+      <text x="40" y="88" fill="#F6F1E7" fill-opacity="0.95" font-size="30" font-weight="700" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Write to auth/middleware.ts?</text>
+      <text x="40" y="120" fill="#F6F1E7" fill-opacity="0.48" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Claude</text>
+
+      <rect x="40" y="136" width="206" height="18" rx="9" fill="#FFFFFF" fill-opacity="0.07"/>
+      <rect x="276" y="136" width="102" height="18" rx="9" fill="#FFFFFF" fill-opacity="0.07"/>
+
+      <rect x="40" y="172" width="220" height="48" rx="15" fill="#245F39" fill-opacity="0.92"/>
+      <rect x="300" y="172" width="220" height="48" rx="15" fill="#6D2E2E" fill-opacity="0.88"/>
+      <text x="128" y="203" fill="#78F0A8" font-size="18" font-weight="800" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Allow</text>
+      <text x="393" y="203" fill="#FF8A8A" font-size="18" font-weight="800" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Deny</text>
     </g>
 
-    <g transform="translate(555 748)">
-      <rect width="490" height="56" rx="18" fill="url(#running)"/>
-      <rect x="0.75" y="0.75" width="488.5" height="54.5" rx="17.25" stroke="#70C77B" stroke-opacity="0.26" stroke-width="1.5"/>
-      <circle cx="28" cy="28" r="4" fill="#67E07A"/>
-      <text x="44" y="35" fill="#F6F1E7" fill-opacity="0.7" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Codex is using a tool</text>
+    <g transform="translate(520 792)" opacity="0.72">
+      <circle cx="12" cy="12" r="4" fill="#6FE080"/>
+      <text x="28" y="18" fill="#F6F1E7" fill-opacity="0.52" font-size="15" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif">Codex is still running quietly in the background.</text>
     </g>
   </g>
 </svg>
